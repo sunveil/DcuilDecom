@@ -1,0 +1,3910 @@
+unit CILCtrlFlowGraph;
+{
+Compiled by Delphi 7
+Decompiled by DCU32INT 
+Source files:
+  DecomUnits\CILCtrlFlowGraph.pas (01.02.2016 12:19:24)}
+
+interface
+
+uses
+  FixUp,
+  DCU32,
+  DCURecs,
+  TypInfo,
+  CILStack,
+  CILMethodHeader,
+  CILExpr,
+  Dialogs,
+  SysUtils,
+  DasmCF,
+  DasmMSIL,
+  DCU_Out,
+  CILCodes,
+  CILOpCode,
+  Classes,
+  SysInit,
+  System;
+
+type
+  TJumpType = (jtNormal, jtJumpToExceptionHandler, jtLeaveTry,
+    jtEndFinally);
+
+  TControlFlowNodeType = (ntNormal, ntEntryPoint, ntRegularExit,
+    ntExceptionalExit, ntCatchHandler, ntFinallyOrFaultHandler,
+    ntEndFinallyOrFault);
+
+  PCaseSelector = ^TCaseSelector;
+  TCaseSelector = record 
+    Val: System.Integer;
+    Next: PCaseSelector;
+  end;
+
+  PCILCtx = ^TCILCtx;
+  TCILCtx = record 
+    Args: CILMethodHeader.TCILArgs;
+    Locals: CILMethodHeader.TCILArgs;
+    CILStack: CILStack.TCILStack;
+  end;
+
+  TInstruction = class(DasmCF.TCmd) 
+  protected
+    FByteCode: CILOpCode.TCILOpCode;
+    FExpr: CILExpr.TCILExpr;
+    FI4: System.Integer;
+    FSArgs: array[System.Byte] of System.Longint;
+    FArgCnt: System.Integer;
+    method SetArg: TInstruction.SetArg{#$1A7};
+    method GetArg: TInstruction.GetArg{#$1A3};
+  public
+    constructor Create0: TInstruction.Create0{#$19E};
+    method AsString: TInstruction.AsString{#$1AB};
+    property ByteCode:CILOpCode.TCILOpCode read FByteCode;
+    property Expr:CILExpr.TCILExpr read FExpr;
+    property I4:System.Integer read FI4 write FI4;
+    property ArgCnt:System.Integer read FArgCnt write FArgCnt;
+    property SArgs[index: System.Integer]: System.Longint
+      read TInstruction.GetArg write TInstruction.SetArg;
+  end;
+
+  TCtrlFlowNode = class(DasmCF.TCmdSeq) 
+  protected
+    FInCtx: TCILCtx;
+    FOutCtx: TCILCtx;
+    FInEdges: Classes.TList;
+    FIncoming: TPredcessors;
+    FOutgoing: Classes.TList;
+    FDominatorTreeChildren: Classes.TList;
+    FImmediateDominator: TCtrlFlowNode;
+    FDominanceFrontier: TCtrlFlowNode;
+    FCmdOfs: System.Cardinal;
+    FVisited: System.Boolean;
+    FLinesCnt: System.Integer;
+    FLabel: CILExpr.TCILLabel;
+    FLInd: System.Integer;
+    method GetInEdgeCnt: TCtrlFlowNode.GetInEdgeCnt{#$186};
+    method GetInEdges: TCtrlFlowNode.GetInEdges{#$189};
+    method GetIncoming: TCtrlFlowNode.GetIncoming{#$18C};
+    method GetOutgoing: TCtrlFlowNode.GetOutgoing{#$18F};
+    method GetNext: TCtrlFlowNode.GetNext{#$192};
+    method GetNextCond: TCtrlFlowNode.GetNextCond{#$195};
+    method GetStart: TCtrlFlowNode.GetStart{#$198};
+    method GetEnd: TCtrlFlowNode.GetEnd{#$19B};
+    method GetExprByOpC: TCtrlFlowNode.GetExprByOpC{#$162};
+  public
+    FIndex: System.Integer;
+    constructor Create: TCtrlFlowNode.Create{#$12D}; override{;
+      virtual @16};
+    constructor Create0: TCtrlFlowNode.Create0{#$131};
+    method Show: TCtrlFlowNode.Show{#$137};
+    destructor Destroy: TCtrlFlowNode.Destroy{#$134}; override{;
+      virtual @-4};
+    method BuildILAst: TCtrlFlowNode.BuildILAst{#$171};
+    method GetStr: TCtrlFlowNode.GetStr{#$177};
+    method AddInRef: TCtrlFlowNode.AddInRef{#$17E};
+    method AddCmd: TCtrlFlowNode.AddCmd{#$181}; override{; virtual @24};
+    property InEdgeCnt:System.Integer read TCtrlFlowNode.GetInEdgeCnt;
+    method RemoveGoToExpr: TCtrlFlowNode.RemoveGoToExpr{#$201};
+    property InEdges:Classes.TList read TCtrlFlowNode.GetInEdges;
+    property CmdOfs:System.Cardinal read FCmdOfs write FCmdOfs;
+    property Next:DasmCF.PCmdSeqRef read TCtrlFlowNode.GetNext;
+    property Cond:DasmCF.PCmdSeqRef read TCtrlFlowNode.GetNextCond;
+    property StartOpCode:TInstruction read TCtrlFlowNode.GetStart;
+    property EndOpCode:TInstruction read TCtrlFlowNode.GetEnd;
+    property Incoming:TPredcessors read TCtrlFlowNode.GetIncoming;
+    property Outgoing:Classes.TList read TCtrlFlowNode.GetOutgoing;
+    property DominatorTreeChildren:Classes.TList
+      read FDominatorTreeChildren;
+    property ImmediateDominator:TCtrlFlowNode read FImmediateDominator
+      write FImmediateDominator;
+    property DominanceFrontier:TCtrlFlowNode read FDominanceFrontier
+      write FDominanceFrontier;
+    property Visited:System.Boolean read FVisited write FVisited;
+    property InCtx:TCILCtx read FInCtx write FInCtx;
+    property OutCtx:TCILCtx read FOutCtx write FOutCtx;
+    property LinesCnt:System.Integer read FLinesCnt write FLinesCnt;
+  end;
+
+  TPredcessors = class(Classes.TList) 
+  public
+    method GetFirstProcessed: TPredcessors.GetFirstProcessed{#$129};
+  end;
+
+  TMethodBody = class(DasmCF.TProc) 
+  protected
+    FCtx: TCILCtx;
+    destructor Destroy: TMethodBody.Destroy{#$1B6};
+  private
+    FLInd: System.Integer;
+    FRegularExit: TCtrlFlowNode;
+    method GetEntryPoint: TMethodBody.GetEntryPoint{#$1F5};
+    method GetRegularExit: TMethodBody.GetRegularExit{#$1F8};
+    method SetEntryPoint: TMethodBody.SetEntryPoint{#$1FB};
+    method SetRegularExit: TMethodBody.SetRegularExit{#$1FE};
+  public
+    constructor Create: TMethodBody.Create{#$1B0};
+    destructor Free: TMethodBody.Free{#$1BA};
+    method SetState: TMethodBody.SetState{#$1BE};
+    method ResetVisited: TMethodBody.ResetVisited{#$1C1};
+    method CreateCtrFlowEdges: TMethodBody.CreateCtrFlowEdges{#$1C4};
+    method ComputeDominance: TMethodBody.ComputeDominance{#$1CF};
+    method FindConditions: TMethodBody.FindConditions{#$1D9};
+    method BuildAst: TMethodBody.BuildAst{#$1E1};
+    method Show: TMethodBody.Show{#$1E4};
+    method ShowDom: TMethodBody.ShowDom{#$1E7};
+    method RemoveNode: TMethodBody.RemoveNode{#$1EB};
+    method GetIndex: TMethodBody.GetIndex{#$1F1};
+    property EntryPoint:TCtrlFlowNode read TMethodBody.GetEntryPoint
+      write TMethodBody.SetEntryPoint;
+    property RegularExit:TCtrlFlowNode read TMethodBody.GetRegularExit
+      write TMethodBody.SetRegularExit;
+    property Ctx:TCILCtx read FCtx write FCtx;
+  end;
+
+function TPredcessors.GetFirstProcessed (Self: TPredcessors):
+  TCtrlFlowNode;
+
+procedure TCtrlFlowNode.Create (Self: TCtrlFlowNode; _Dv_: false..true;
+  AStart: System.Integer);
+
+procedure TCtrlFlowNode.Create0 (Self: TCtrlFlowNode; _Dv_: false..true);
+procedure TCtrlFlowNode.Destroy (Self: TCtrlFlowNode; _Dv_: false..true);
+procedure TCtrlFlowNode.Show (Self: TCtrlFlowNode);
+function TCtrlFlowNode.GetExprByOpC (Self: TCtrlFlowNode;
+  var Instr: TInstruction): System.Boolean;
+
+procedure TCtrlFlowNode.BuildILAst (Self: TCtrlFlowNode);
+function TCtrlFlowNode.GetStr (Self: TCtrlFlowNode): System.AnsiString;
+procedure TCtrlFlowNode.AddInRef (Self: TCtrlFlowNode;
+  CmdSeq: TCtrlFlowNode);
+
+function TCtrlFlowNode.AddCmd (Self: TCtrlFlowNode;
+  AStart: System.Cardinal; ASize: System.Cardinal): DasmCF.TCmd;
+
+function TCtrlFlowNode.GetInEdgeCnt (Self: TCtrlFlowNode): System.Integer;
+function TCtrlFlowNode.GetInEdges (Self: TCtrlFlowNode): Classes.TList;
+function TCtrlFlowNode.GetIncoming (Self: TCtrlFlowNode): TPredcessors;
+function TCtrlFlowNode.GetOutgoing (Self: TCtrlFlowNode): Classes.TList;
+function TCtrlFlowNode.GetNext (Self: TCtrlFlowNode): DasmCF.PCmdSeqRef;
+function TCtrlFlowNode.GetNextCond (Self: TCtrlFlowNode):
+  DasmCF.PCmdSeqRef;
+
+function TCtrlFlowNode.GetStart (Self: TCtrlFlowNode): TInstruction;
+function TCtrlFlowNode.GetEnd (Self: TCtrlFlowNode): TInstruction;
+procedure TInstruction.Create0 (Self: TInstruction; _Dv_: false..true;
+  AOfs: System.Integer; ByteCode: CILOpCode.TCILOpCode);
+
+function TInstruction.GetArg (Self: TInstruction; index: System.Integer):
+  System.Longint;
+
+procedure TInstruction.SetArg (Self: TInstruction; index: System.Integer;
+  Value: System.Longint);
+
+procedure TInstruction.AsString (Self: TInstruction);
+procedure TMethodBody.Create (Self: TMethodBody; _Dv_: false..true;
+  AStart: System.Integer; ASize: System.Integer; Ctx: TCILCtx);
+
+procedure TMethodBody.Destroy (Self: TMethodBody; _Dv_: false..true);
+procedure TMethodBody.Free (Self: TMethodBody; _Dv_: false..true);
+procedure TMethodBody.SetState (Self: TMethodBody);
+procedure TMethodBody.ResetVisited (Self: TMethodBody);
+procedure TMethodBody.CreateCtrFlowEdges (Self: TMethodBody);
+procedure TMethodBody.ComputeDominance (Self: TMethodBody);
+procedure TMethodBody.FindConditions (Self: TMethodBody;
+  var Body: TMethodBody);
+
+procedure TMethodBody.BuildAst (Self: TMethodBody);
+procedure TMethodBody.Show (Self: TMethodBody);
+procedure TMethodBody.ShowDom (Self: TMethodBody);
+procedure TMethodBody.RemoveNode (Self: TMethodBody;
+  SrcNode: System.Pointer; TrgNode: System.Pointer);
+
+function TMethodBody.GetIndex (Self: TMethodBody; I: TCtrlFlowNode):
+  System.Integer;
+
+function TMethodBody.GetEntryPoint (Self: TMethodBody): TCtrlFlowNode;
+function TMethodBody.GetRegularExit (Self: TMethodBody): TCtrlFlowNode;
+procedure TMethodBody.SetEntryPoint (Self: TMethodBody;
+  const Value: TCtrlFlowNode);
+
+procedure TMethodBody.SetRegularExit (Self: TMethodBody;
+  const Value: TCtrlFlowNode);
+
+function TCtrlFlowNode.RemoveGoToExpr (Self: TCtrlFlowNode;
+  Item: System.Pointer): System.Integer;
+
+procedure Finalization;
+
+procedure CILCtrlFlowGraph;
+
+implementation
+
+uses
+  DCU_In,
+  CILHLOp,
+  CILDisAsm;
+
+var
+  _DV_5: -$80000000..$7FFFFFFF;
+
+function TPredcessors.GetFirstProcessed (Self: TPredcessors):
+  TCtrlFlowNode;
+var
+  Result: TCtrlFlowNode;
+  i: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      MOV EBX{@Self},EAX\n
+      MOV EDI,DWORD PTR [EBX+8{@Self^+8}]\n
+      DEC EDI\n
+      TEST EDI,EDI\n
+      JL +44; (0x39)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC EDI\n
+      XOR ESI{@i},ESI\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Get{#$AF}\n
+      CMP BYTE PTR [EAX+88],$01\n
+      JNE +22; (0x35)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      XOR ECX,ECX\n
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Move{#$B0}\n
+      XOR EDX,EDX\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Get{#$AF}\n
+      JMP +6; (0x3B)\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      INC ESI{@i}\n
+      DEC EDI\n
+      JNE -41; (0x10)\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      XOR EAX,EAX\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "5"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "4"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "6"/>
+  <edge id="4" source = "4" target = "2"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "6"/>
+end;
+
+procedure TCtrlFlowNode.Create (Self: TCtrlFlowNode; _Dv_: false..true;
+  AStart: System.Integer);
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      TEST DL,DL\n
+      JE +8; (0xE)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      ADD ESP,-16\n
+      CALL @ClassCreate{#$CE}\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EBX,EDX\n
+      MOV ESI{@Self},EAX\n
+      XOR EDX,EDX\n
+      MOV EAX,ESI{@Self}\n
+      CALL TCmdSeq.Create{#$52}\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TList{#$AD}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+60{@Self.FInEdges}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_DV_TPredcessors{#$122}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+64{@Self.FIncoming}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TList{#$AD}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+68{@Self.FOutgoing}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TList{#$AD}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+72{@Self.FDominatorTreeChildren}],EAX\n
+      MOV EDX,ESI{@Self}\n
+      MOV EAX,ESI{@Self}\n
+      CALL TList.IndexOf{#$B1}\n
+      MOV DWORD PTR [ESI+104{@Self.FIndex}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+36{@Self.FInCtx.Args}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+40{@Self.FInCtx.Locals}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+48{@Self.FOutCtx.Args}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+52{@Self.FOutCtx.Locals}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILStack{#$17}]\n
+      CALL TCILStack.Create{#$18}\n
+      MOV DWORD PTR [ESI+44{@Self.FInCtx.CILStack}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILStack{#$17}]\n
+      CALL TCILStack.Create{#$18}\n
+      MOV DWORD PTR [ESI+56{@Self.FOutCtx.CILStack}],EAX\n
+      XOR EAX,EAX\n
+      MOV DWORD PTR [ESI+92{@Self.FLinesCnt}],EAX\n
+      MOV EAX,ESI{@Self}\n
+      TEST BL{@_Dv_},BL{@_Dv_}\n
+      JE +15; (0xD7)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      CALL @AfterConstruction{#$CF}\n
+      POP WORD PTR FS:[$00000000]\n
+      ADD ESP,12\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EAX,ESI{@Self}\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "2"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "4"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "4"/>
+end;
+
+procedure TCtrlFlowNode.Create0 (Self: TCtrlFlowNode; _Dv_: false..true);
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      TEST DL,DL\n
+      JE +8; (0xE)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      ADD ESP,-16\n
+      CALL @ClassCreate{#$CE}\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EBX,EDX\n
+      MOV ESI{@Self},EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TList{#$AD}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+60{@Self.FInEdges}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_DV_TPredcessors{#$122}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+64{@Self.FIncoming}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TList{#$AD}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+68{@Self.FOutgoing}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TList{#$AD}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+72{@Self.FDominatorTreeChildren}],EAX\n
+      MOV EDX,ESI{@Self}\n
+      MOV EAX,ESI{@Self}\n
+      CALL TList.IndexOf{#$B1}\n
+      MOV DWORD PTR [ESI+104{@Self.FIndex}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+36{@Self.FInCtx.Args}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+40{@Self.FInCtx.Locals}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+48{@Self.FOutCtx.Args}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+52{@Self.FOutCtx.Locals}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILStack{#$17}]\n
+      CALL TCILStack.Create{#$18}\n
+      MOV DWORD PTR [ESI+44{@Self.FInCtx.CILStack}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILStack{#$17}]\n
+      CALL TCILStack.Create{#$18}\n
+      MOV DWORD PTR [ESI+56{@Self.FOutCtx.CILStack}],EAX\n
+      XOR EAX,EAX\n
+      MOV DWORD PTR [ESI+92{@Self.FLinesCnt}],EAX\n
+      XOR EAX,EAX\n
+      MOV DWORD PTR [ESI+24{@Self^+24}],EAX\n
+      XOR EAX,EAX\n
+      MOV DWORD PTR [ESI+28{@Self^+28}],EAX\n
+      MOV EAX,ESI{@Self}\n
+      TEST BL{@_Dv_},BL{@_Dv_}\n
+      JE +15; (0xD8)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      CALL @AfterConstruction{#$CF}\n
+      POP WORD PTR FS:[$00000000]\n
+      ADD ESP,12\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EAX,ESI{@Self}\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "2"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "4"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "4"/>
+end;
+
+procedure TCtrlFlowNode.Destroy (Self: TCtrlFlowNode; _Dv_: false..true);
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      CALL @BeforeDestruction{#$D1}\n
+      MOV EBX,EDX\n
+      MOV ESI{@Self},EAX\n
+      MOV EDX,EBX{@_Dv_}\n
+      AND DL,$FC\n
+      MOV EAX,ESI{@Self}\n
+      CALL TCmdSeq.Destroy{#$53}\n
+      MOV EAX,DWORD PTR [ESI+60{@Self.FInEdges}]\n
+      CALL TObject.Free{#$D0}\n
+      MOV EAX,DWORD PTR [ESI+64{@Self.FIncoming}]\n
+      CALL TObject.Free{#$D0}\n
+      MOV EAX,DWORD PTR [ESI+68{@Self.FOutgoing}]\n
+      CALL TObject.Free{#$D0}\n
+      MOV EAX,DWORD PTR [ESI+72{@Self.FDominatorTreeChildren}]\n
+      CALL TObject.Free{#$D0}\n
+      MOV EAX,DWORD PTR [ESI+36{@Self.FInCtx.Args}]\n
+      CALL TObject.Free{#$D0}\n
+      MOV EAX,DWORD PTR [ESI+40{@Self.FInCtx.Locals}]\n
+      CALL TObject.Free{#$D0}\n
+      MOV EAX,DWORD PTR [ESI+44{@Self.FInCtx.CILStack}]\n
+      CALL TObject.Free{#$D0}\n
+      MOV EAX,DWORD PTR [ESI+56{@Self.FOutCtx.CILStack}]\n
+      CALL TObject.Free{#$D0}\n
+      TEST BL{@_Dv_},BL{@_Dv_}\n
+      JLE +7; (0x62)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      MOV EAX,ESI{@Self}\n
+      CALL @ClassDestroy{#$D2}\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "2"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+end;
+
+procedure TCtrlFlowNode.Show (Self: TCtrlFlowNode);
+var
+  i: System.Integer;
+  Instr: TInstruction;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP\n
+      MOV EDI{@Self},EAX\n
+      MOV EAX,DWORD PTR [EDI+96{@Self.FLabel}]\n
+      TEST EAX,EAX\n
+      JE +21; (0x22)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      CMP DWORD PTR [EAX+12],0\n
+      JLE +15; (0x22)\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      CALL NL{#$5A}\n
+      MOV EAX,DWORD PTR [EDI+96{@Self.FLabel}]\n
+      XOR EDX,EDX\n
+      MOV ECX,DWORD PTR [EAX]\n
+      CALL DWORD PTR [ECX+16],NEAR\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV ESI,DWORD PTR [EDI+8{@Self^+8}]\n
+      DEC ESI\n
+      TEST ESI,ESI\n
+      JL +51; (0x5D)\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      INC ESI\n
+      XOR EBP{@i},EBP\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      MOV EDX,EBP{@i}\n
+      MOV EAX,EDI{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV EBX{@Instr},EAX\n
+      CMP DWORD PTR [EBX+12{@Instr.FExpr}],0\n
+      JE +27; (0x59)\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+8{@Instr.FByteCode}]\n
+      CALL TCILOpCode.GetCode{#$9A}\n
+      CMP AL,$44\n
+      JE +15; (0x59)\n
+    </data>
+    </node>
+  <node id="7">
+    <data key="node_content">
+      CALL NL{#$5A}\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [EBX+12{@Instr.FExpr}]\n
+      MOV ECX,DWORD PTR [EAX]\n
+      CALL DWORD PTR [ECX+16],NEAR\n
+    </data>
+    </node>
+  <node id="8">
+    <data key="node_content">
+      INC EBP{@i}\n
+      DEC ESI\n
+      JNE -48; (0x2D)\n
+    </data>
+    </node>
+  <node id="9">
+    <data key="node_content">
+      POP EBP\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "3"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "3"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "9"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "8"/>
+  <edge id="5" source = "5" target = "6"/>
+  <edge id="6" source = "6" target = "8"/>
+  <edge id="6" source = "6" target = "7"/>
+  <edge id="7" source = "7" target = "8"/>
+  <edge id="8" source = "8" target = "5"/>
+  <edge id="8" source = "8" target = "9"/>
+end;
+
+function GetExpr (Node: TCtrlFlowNode; Cond: CILExpr.TCILExpr;
+  var Body: TMethodBody): System.Boolean;
+var
+  Result: System.Boolean;
+  L: TCtrlFlowNode;
+  R: TCtrlFlowNode;
+  C: TCtrlFlowNode;
+  D: TCtrlFlowNode;
+  NewNode: TCtrlFlowNode;
+  Next: TCtrlFlowNode;
+  TNode: TCtrlFlowNode;
+  FNode: TCtrlFlowNode;
+  IfTE: CILHLOp.TCILIfThenElseBlock;
+  IfT: CILHLOp.TCILIfThenBlock;
+  WhileSt: CILHLOp.TCILWhileSt;
+  RepeatSt: CILHLOp.TCILRepeatSt;
+  Cnd: CILHLOp.TCILCondition;
+  Expr: CILExpr.TCILExpr;
+  i: System.Integer;
+  j: System.Integer;
+  ind: System.Integer;
+  Instr: TInstruction;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP{Body}\n
+      ADD ESP{Body},-28\n
+      MOV DWORD PTR [ESP{Body}],ECX\n
+      MOV ESI,EDX\n
+      MOV EBX{@Node},EAX\n
+      MOV BYTE PTR [ESP+4{Result}],$00\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      CMP DWORD PTR [EAX+8],2\n
+      JNE +777; (0x32D)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      CMP DWORD PTR [EAX+8],1\n
+      JNE +512; (0x241)\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,$00000001\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      CMP DWORD PTR [EAX+8],1\n
+      JNE +480; (0x241)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      MOV EBP{@L},EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,$00000001\n
+      CALL TList.Get{#$AF}\n
+      MOV DWORD PTR [ESP+8{R}],EAX\n
+      MOV EAX,EBP{@L}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      MOV EDI,EAX\n
+      MOV EAX,DWORD PTR [ESP+8{R}]\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      CMP EDI,EAX\n
+      JNE +403; (0x241)\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+28{@Node^+28}]\n
+      MOV EDI{@TNode},DWORD PTR [EAX+4]\n
+      MOV EAX,EDI{@TNode}\n
+      CALL TList.Last{#$B2}\n
+      MOV EDX,EAX\n
+      MOV EAX,EDI{@TNode}\n
+      CALL TCtrlFlowNode.RemoveGoToExpr{#$201}\n
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      MOV DWORD PTR [ESP+12{FNode}],EAX\n
+      MOV EAX,DWORD PTR [ESP+12{FNode}]\n
+      CALL TList.Last{#$B2}\n
+      MOV EDX,EAX\n
+      MOV EAX,DWORD PTR [ESP+12{FNode}]\n
+      CALL TCtrlFlowNode.RemoveGoToExpr{#$201}\n
+      MOV EAX,DWORD PTR [EBX+28{@Node^+28}]\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      MOV EAX,DWORD PTR [EAX+96]\n
+      CALL TCILLabel.RemoveRef{#$23}\n
+      MOV EAX,ESI{@Cond}\n
+      CALL TCILCondition.Neg{#$E6}\n
+      MOV DWORD PTR [ESP+16{Cnd}],EAX\n
+      MOV EAX,DWORD PTR [ESP+12{FNode}]\n
+      PUSH EAX\n
+      PUSH EDI{@TNode}\n
+      MOV ECX,DWORD PTR [ESP+24{Instr}]\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILIfThenElseBlock{#$E7}]\n
+      CALL TCILIfThenElseBlock.Create{#$E8}\n
+      MOV ESI{@IfTE},EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV DWORD PTR [EAX+12],ESI{@IfTE}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV ESI,DWORD PTR [EAX+8]\n
+      DEC ESI\n
+      TEST ESI,ESI\n
+      JL +85; (0x181)\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      INC ESI\n
+      XOR EDI{@i},EDI\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      CMP EBX{@Node},DWORD PTR [EAX+28]\n
+      JNE +17; (0x153)\n
+    </data>
+    </node>
+  <node id="7">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      MOV DWORD PTR [EAX+28],EBX{@Node}\n
+    </data>
+    </node>
+  <node id="8">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      MOV EAX,DWORD PTR [EAX+24]\n
+      CMP EBX{@Node},DWORD PTR [EAX+4]\n
+      JNE +20; (0x17D)\n
+    </data>
+    </node>
+  <node id="9">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      MOV EAX,DWORD PTR [EAX+24]\n
+      MOV DWORD PTR [EAX+4],EBX{@Node}\n
+    </data>
+    </node>
+  <node id="10">
+    <data key="node_content">
+      INC EDI{@i}\n
+      DEC ESI\n
+      JNE -82; (0x12F)\n
+    </data>
+    </node>
+  <node id="11">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV ESI,DWORD PTR [EAX+8]\n
+      DEC ESI\n
+      TEST ESI,ESI\n
+      JL +33; (0x1B1)\n
+    </data>
+    </node>
+  <node id="12">
+    <data key="node_content">
+      INC ESI\n
+      XOR EDI{@i},EDI\n
+    </data>
+    </node>
+  <node id="13">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      MOV EDX,EAX\n
+      MOV EAX,DWORD PTR [ESP{Body}]\n
+      MOV EAX,DWORD PTR [EAX]\n
+      CALL TList.Remove{#$B3}\n
+      INC EDI{@i}\n
+      DEC ESI\n
+      JNE -30; (0x193)\n
+    </data>
+    </node>
+  <node id="14">
+    <data key="node_content">
+      MOV EAX,EBP{@L}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      MOV ESI{@C},EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetNext{#$192}\n
+      MOV DWORD PTR [EAX+4],ESI{@C}\n
+      MOV EAX,DWORD PTR [ESI+96{@C.FLabel}]\n
+      TEST EAX,EAX\n
+      JE +5; (0x1D7)\n
+    </data>
+    </node>
+  <node id="15">
+    <data key="node_content">
+      CALL TCILLabel.RemoveRef{#$23}\n
+    </data>
+    </node>
+  <node id="16">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+28{@Node^+28}]\n
+      XOR EDX,EDX\n
+      MOV DWORD PTR [EAX+4],EDX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EBP{@L}\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,DWORD PTR [ESP+8{R}]\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,ESI{@C}\n
+      CALL TList.Add{#$B4}\n
+      MOV EAX,ESI{@C}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBX{@Node}\n
+      CALL TList.Add{#$B4}\n
+      MOV EAX,ESI{@C}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBP{@L}\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,ESI{@C}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,DWORD PTR [ESP+8{R}]\n
+      CALL TList.Remove{#$B3}\n
+      MOV BYTE PTR [ESP+4{Result}],$01\n
+      JMP +854; (0x597)\n
+    </data>
+    </node>
+  <node id="17">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EDX,DWORD PTR [EAX+4]\n
+      MOV EAX,DWORD PTR [EDX+24]\n
+      TEST EAX,EAX\n
+      JE +219; (0x32D)\n
+    </data>
+    </node>
+  <node id="18">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EAX+4]\n
+      MOV ECX,DWORD PTR [EBX+28{@Node^+28}]\n
+      CMP EAX,DWORD PTR [ECX+4]\n
+      JNE +204; (0x32D)\n
+    </data>
+    </node>
+  <node id="19">
+    <data key="node_content">
+      MOV EDI{@TNode},EDX\n
+      MOV EAX,ESI{@Cond}\n
+      CALL TCILCondition.Neg{#$E6}\n
+      MOV DWORD PTR [ESP+16{Cnd}],EAX\n
+      PUSH EDI{@TNode}\n
+      PUSH $00\n
+      MOV ECX,DWORD PTR [ESP+24{Instr}]\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILIfThenElseBlock{#$E7}]\n
+      CALL TCILIfThenElseBlock.Create{#$E8}\n
+      MOV ESI{@IfTE},EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV DWORD PTR [ESP+24{Instr}],EAX\n
+      MOV EAX,DWORD PTR [ESP+24{Instr}]\n
+      MOV DWORD PTR [EAX+12],ESI{@IfTE}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV DWORD PTR [EAX+12],ESI{@IfTE}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EDX,DWORD PTR [EDX+4]\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,DWORD PTR [EBX+28{@Node^+28}]\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EDX,DWORD PTR [EDX+4]\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetNextCond{#$195}\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      MOV EAX,DWORD PTR [EAX+96]\n
+      CALL TCILLabel.RemoveRef{#$23}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetNext{#$192}\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      CMP DWORD PTR [EAX+96],0\n
+      JE +18; (0x2FB)\n
+    </data>
+    </node>
+  <node id="20">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetNext{#$192}\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      MOV EAX,DWORD PTR [EAX+96]\n
+      CALL TCILLabel.RemoveRef{#$23}\n
+    </data>
+    </node>
+  <node id="21">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetNext{#$192}\n
+      MOV EDX,DWORD PTR [EAX+4]\n
+      MOV EAX,DWORD PTR [ESP{Body}]\n
+      MOV EAX,DWORD PTR [EAX]\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetNextCond{#$195}\n
+      MOV ESI,DWORD PTR [EAX+4]\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetNext{#$192}\n
+      MOV DWORD PTR [EAX+4],ESI\n
+      MOV BYTE PTR [ESP+4{Result}],$01\n
+      JMP +618; (0x597)\n
+    </data>
+    </node>
+  <node id="22">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+28{@Node^+28}]\n
+      CMP EBX{@Node},DWORD PTR [EAX+4]\n
+      JNE +287; (0x458)\n
+    </data>
+    </node>
+  <node id="23">
+    <data key="node_content">
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_DV_TCtrlFlowNode{#$120}]\n
+      CALL TCtrlFlowNode.Create0{#$131}\n
+      MOV EBP{@NewNode},EAX\n
+      MOV DWORD PTR [ESP+16{Cnd}],ESI{@Cond}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV DWORD PTR [ESP+24{Instr}],EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV EDX,EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,DWORD PTR [EBX+28{@Node^+28}]\n
+      XOR EDX,EDX\n
+      MOV DWORD PTR [EAX+4],EDX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV ESI,DWORD PTR [EAX+8]\n
+      DEC ESI\n
+      TEST ESI,ESI\n
+      JL +35; (0x3A0)\n
+    </data>
+    </node>
+  <node id="24">
+    <data key="node_content">
+      INC ESI\n
+      XOR EDI{@i},EDI\n
+    </data>
+    </node>
+  <node id="25">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      PUSH EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      POP EDX\n
+      CALL TList.Remove{#$B3}\n
+      INC EDI{@i}\n
+      DEC ESI\n
+      JNE -32; (0x380)\n
+    </data>
+    </node>
+  <node id="26">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBX{@Node}\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EBX{@Node}\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,DWORD PTR [EBX+96{@Node.FLabel}]\n
+      CALL TCILLabel.RemoveRef{#$23}\n
+      PUSH $00\n
+      XOR ECX,ECX\n
+      MOV EDX,EBX{@Node}\n
+      MOV EAX,EBP{@NewNode}\n
+      CALL TList.Assign{#$B5}\n
+      MOV DWORD PTR [EBP+92{@NewNode.FLinesCnt}],$00000002\n
+      PUSH EBP{@NewNode}\n
+      MOV ECX,DWORD PTR [ESP+20{Expr}]\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILWhileSt{#$E9}]\n
+      CALL TCILWhileSt.Create{#$EA}\n
+      MOV DWORD PTR [ESP+20{Expr}],EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV ESI,DWORD PTR [EAX+8]\n
+      DEC ESI\n
+      TEST ESI,ESI\n
+      JL +53; (0x431)\n
+    </data>
+    </node>
+  <node id="27">
+    <data key="node_content">
+      INC ESI\n
+      XOR EDI{@i},EDI\n
+    </data>
+    </node>
+  <node id="28">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      CMP DWORD PTR [EAX+8],1\n
+      JNE +21; (0x42D)\n
+    </data>
+    </node>
+  <node id="29">
+    <data key="node_content">
+      PUSH EBP{@NewNode}\n
+      MOV ECX,DWORD PTR [ESP+20{Expr}]\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILRepeatSt{#$EB}]\n
+      CALL TCILRepeatSt.Create{#$EC}\n
+      MOV DWORD PTR [ESP+20{Expr}],EAX\n
+    </data>
+    </node>
+  <node id="30">
+    <data key="node_content">
+      INC EDI{@i}\n
+      DEC ESI\n
+      JNE -50; (0x3FF)\n
+    </data>
+    </node>
+  <node id="31">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [ESP+24{Instr}]\n
+      MOV EDX,DWORD PTR [ESP+20{Expr}]\n
+      MOV DWORD PTR [EAX+12],EDX\n
+      MOV EAX,EBX{@Node}\n
+      MOV EDX,DWORD PTR [EAX]\n
+      CALL DWORD PTR [EDX+8],NEAR\n
+      MOV EDX,DWORD PTR [ESP+24{Instr}]\n
+      MOV EAX,EBX{@Node}\n
+      CALL TList.Add{#$B4}\n
+      MOV BYTE PTR [ESP+4{Result}],$01\n
+      JMP +319; (0x597)\n
+    </data>
+    </node>
+  <node id="32">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      CMP DWORD PTR [EAX+8],1\n
+      JNE +302; (0x597)\n
+    </data>
+    </node>
+  <node id="33">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      CMP DWORD PTR [EAX+8],1\n
+      JNE +281; (0x597)\n
+    </data>
+    </node>
+  <node id="34">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      CMP DWORD PTR [EAX+8],0\n
+      JLE +264; (0x597)\n
+    </data>
+    </node>
+  <node id="35">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      CMP DWORD PTR [EAX+8],0\n
+      JLE +235; (0x597)\n
+    </data>
+    </node>
+  <node id="36">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      MOV EBP{@Next},EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,DWORD PTR [EAX]\n
+      CALL DWORD PTR [EDX+8],NEAR\n
+      PUSH $00\n
+      MOV EAX,EBP{@Next}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      PUSH EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR ECX,ECX\n
+      POP EDX\n
+      CALL TList.Assign{#$B5}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV ESI,DWORD PTR [EAX+8]\n
+      DEC ESI\n
+      TEST ESI,ESI\n
+      JL +59; (0x52B)\n
+    </data>
+    </node>
+  <node id="37">
+    <data key="node_content">
+      INC ESI\n
+      XOR EDI{@i},EDI\n
+    </data>
+    </node>
+  <node id="38">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBP{@Next}\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBX{@Node}\n
+      CALL TList.Add{#$B4}\n
+      INC EDI{@i}\n
+      DEC ESI\n
+      JNE -56; (0x4F3)\n
+    </data>
+    </node>
+  <node id="39">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      MOV ESI,DWORD PTR [EAX+8]\n
+      DEC ESI\n
+      TEST ESI,ESI\n
+      JL +29; (0x556)\n
+    </data>
+    </node>
+  <node id="40">
+    <data key="node_content">
+      INC ESI\n
+      XOR EDI{@i},EDI\n
+    </data>
+    </node>
+  <node id="41">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      MOV EDX,EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TList.Add{#$B4}\n
+      INC EDI{@i}\n
+      DEC ESI\n
+      JNE -26; (0x53C)\n
+    </data>
+    </node>
+  <node id="42">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EDX,DWORD PTR [EAX+4]\n
+      MOV EAX,DWORD PTR [ESP{Body}]\n
+      MOV EAX,DWORD PTR [EAX]\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,DWORD PTR [EBX+28{@Node^+28}]\n
+      TEST EAX,EAX\n
+      JE +15; (0x57C)\n
+    </data>
+    </node>
+  <node id="43">
+    <data key="node_content">
+      CMP DWORD PTR [EBP+28{@Next^+28}],0\n
+      JE +9; (0x57C)\n
+    </data>
+    </node>
+  <node id="44">
+    <data key="node_content">
+      MOV EDX,DWORD PTR [EBP+28{@Next^+28}]\n
+      MOV EDX,DWORD PTR [EDX+4]\n
+      MOV DWORD PTR [EAX+4],EDX\n
+    </data>
+    </node>
+  <node id="45">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      TEST EAX,EAX\n
+      JE +15; (0x592)\n
+    </data>
+    </node>
+  <node id="46">
+    <data key="node_content">
+      CMP DWORD PTR [EBP+24{@Next^+24}],0\n
+      JE +9; (0x592)\n
+    </data>
+    </node>
+  <node id="47">
+    <data key="node_content">
+      MOV EDX,DWORD PTR [EBP+24{@Next^+24}]\n
+      MOV EDX,DWORD PTR [EDX+4]\n
+      MOV DWORD PTR [EAX+4],EDX\n
+    </data>
+    </node>
+  <node id="48">
+    <data key="node_content">
+      MOV BYTE PTR [ESP+4{Result}],$01\n
+    </data>
+    </node>
+  <node id="49">
+    <data key="node_content">
+      MOV AL,BYTE PTR [ESP+4{Result}]\n
+      ADD ESP{Body},28\n
+      POP EBP{Body}\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "22"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "17"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "17"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "17"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "11"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "6"/>
+  <edge id="6" source = "6" target = "8"/>
+  <edge id="6" source = "6" target = "7"/>
+  <edge id="7" source = "7" target = "8"/>
+  <edge id="8" source = "8" target = "10"/>
+  <edge id="8" source = "8" target = "9"/>
+  <edge id="9" source = "9" target = "10"/>
+  <edge id="10" source = "10" target = "6"/>
+  <edge id="10" source = "10" target = "11"/>
+  <edge id="11" source = "11" target = "14"/>
+  <edge id="11" source = "11" target = "12"/>
+  <edge id="12" source = "12" target = "13"/>
+  <edge id="13" source = "13" target = "13"/>
+  <edge id="13" source = "13" target = "14"/>
+  <edge id="14" source = "14" target = "16"/>
+  <edge id="14" source = "14" target = "15"/>
+  <edge id="15" source = "15" target = "16"/>
+  <edge id="16" source = "16" target = "49"/>
+  <edge id="17" source = "17" target = "22"/>
+  <edge id="17" source = "17" target = "18"/>
+  <edge id="18" source = "18" target = "22"/>
+  <edge id="18" source = "18" target = "19"/>
+  <edge id="19" source = "19" target = "21"/>
+  <edge id="19" source = "19" target = "20"/>
+  <edge id="20" source = "20" target = "21"/>
+  <edge id="21" source = "21" target = "49"/>
+  <edge id="22" source = "22" target = "32"/>
+  <edge id="22" source = "22" target = "23"/>
+  <edge id="23" source = "23" target = "26"/>
+  <edge id="23" source = "23" target = "24"/>
+  <edge id="24" source = "24" target = "25"/>
+  <edge id="25" source = "25" target = "25"/>
+  <edge id="25" source = "25" target = "26"/>
+  <edge id="26" source = "26" target = "31"/>
+  <edge id="26" source = "26" target = "27"/>
+  <edge id="27" source = "27" target = "28"/>
+  <edge id="28" source = "28" target = "30"/>
+  <edge id="28" source = "28" target = "29"/>
+  <edge id="29" source = "29" target = "30"/>
+  <edge id="30" source = "30" target = "28"/>
+  <edge id="30" source = "30" target = "31"/>
+  <edge id="31" source = "31" target = "49"/>
+  <edge id="32" source = "32" target = "49"/>
+  <edge id="32" source = "32" target = "33"/>
+  <edge id="33" source = "33" target = "49"/>
+  <edge id="33" source = "33" target = "34"/>
+  <edge id="34" source = "34" target = "49"/>
+  <edge id="34" source = "34" target = "35"/>
+  <edge id="35" source = "35" target = "49"/>
+  <edge id="35" source = "35" target = "36"/>
+  <edge id="36" source = "36" target = "39"/>
+  <edge id="36" source = "36" target = "37"/>
+  <edge id="37" source = "37" target = "38"/>
+  <edge id="38" source = "38" target = "38"/>
+  <edge id="38" source = "38" target = "39"/>
+  <edge id="39" source = "39" target = "42"/>
+  <edge id="39" source = "39" target = "40"/>
+  <edge id="40" source = "40" target = "41"/>
+  <edge id="41" source = "41" target = "41"/>
+  <edge id="41" source = "41" target = "42"/>
+  <edge id="42" source = "42" target = "45"/>
+  <edge id="42" source = "42" target = "43"/>
+  <edge id="43" source = "43" target = "45"/>
+  <edge id="43" source = "43" target = "44"/>
+  <edge id="44" source = "44" target = "45"/>
+  <edge id="45" source = "45" target = "48"/>
+  <edge id="45" source = "45" target = "46"/>
+  <edge id="46" source = "46" target = "48"/>
+  <edge id="46" source = "46" target = "47"/>
+  <edge id="47" source = "47" target = "48"/>
+  <edge id="48" source = "48" target = "49"/>
+end;
+
+function FindCase (Node: TCtrlFlowNode; var Body: TMethodBody):
+  System.Boolean;
+var
+  Result: System.Boolean;
+  A: TCtrlFlowNode;
+  i: System.Integer;
+  j: System.Integer;
+  ind: System.Integer;
+  Instr: TInstruction;
+  Flag: System.Boolean;
+  CaseSt: CILHLOp.TCILCaseSt;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP{Result}\n
+      PUSH ECX\n
+      MOV ESI{@Node},EAX\n
+      MOV BYTE PTR [ESP{Result}],$00\n
+      MOV BYTE PTR [ESP+1{Flag}],$01\n
+      MOV EAX,ESI{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      MOV EBX{@A},EAX\n
+      MOV EAX,ESI{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EBP{Result},DWORD PTR [EAX+8]\n
+      DEC EBP{Result}\n
+      TEST EBP{Result},EBP{Result}\n
+      JLE +44; (0x5B)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      MOV EDI{@i},$00000001\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EAX,ESI{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EDI{@i}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      CMP EBX{@A},EAX\n
+      JE +5; (0x57)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV BYTE PTR [ESP+1{Flag}],$00\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      INC EDI{@i}\n
+      DEC EBP{Result}\n
+      JNE -39; (0x34)\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      CMP BYTE PTR [ESP+1{Flag}],$00\n
+      JE +43; (0x8D)\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      MOV EAX,ESI{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV EBX{@Instr},EAX\n
+      MOV EAX,ESI{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      PUSH EAX\n
+      MOV EAX,DWORD PTR [EBX+8{@Instr.FByteCode}]\n
+      PUSH EAX\n
+      MOV ECX,DWORD PTR [EBX+12{@Instr.FExpr}]\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILCaseSt{#$EE}]\n
+      CALL TCILCaseSt.Create{#$EF}\n
+      XOR EDX,EDX\n
+      MOV ECX,DWORD PTR [EAX{@CaseSt}]\n
+      CALL DWORD PTR [ECX+16],NEAR\n
+    </data>
+    </node>
+  <node id="7">
+    <data key="node_content">
+      MOV AL,BYTE PTR [ESP{Result}]\n
+      POP EDX\n
+      POP EBP{Result}\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "5"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "4"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "2"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "7"/>
+  <edge id="5" source = "5" target = "6"/>
+  <edge id="6" source = "6" target = "7"/>
+end;
+
+procedure MergeOneWayB (Node: TCtrlFlowNode; var Body: TMethodBody);
+var
+  Next: TCtrlFlowNode;
+  i: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP{Body}\n
+      PUSH ECX\n
+      MOV DWORD PTR [ESP{Body}],EDX\n
+      MOV EBX{@Node},EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      CMP DWORD PTR [EAX+8],1\n
+      JNE +297; (0x144)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      CMP DWORD PTR [EAX+8],1\n
+      JNE +276; (0x144)\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      CMP DWORD PTR [EAX+8],0\n
+      JLE +259; (0x144)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      CMP DWORD PTR [EAX+8],0\n
+      JLE +230; (0x144)\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR EDX,EDX\n
+      CALL TList.Get{#$AF}\n
+      MOV EBP{@Next},EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,DWORD PTR [EAX]\n
+      CALL DWORD PTR [EDX+8],NEAR\n
+      PUSH $00\n
+      MOV EAX,EBP{@Next}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      PUSH EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      XOR ECX,ECX\n
+      POP EDX\n
+      CALL TList.Assign{#$B5}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDI,DWORD PTR [EAX+8]\n
+      DEC EDI\n
+      TEST EDI,EDI\n
+      JL +59; (0xDD)\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      INC EDI\n
+      XOR ESI{@i},ESI\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,ESI{@i}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBP{@Next}\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,EBX{@Node}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,ESI{@i}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBX{@Node}\n
+      CALL TList.Add{#$B4}\n
+      INC ESI{@i}\n
+      DEC EDI\n
+      JNE -56; (0xA5)\n
+    </data>
+    </node>
+  <node id="7">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      MOV EDI,DWORD PTR [EAX+8]\n
+      DEC EDI\n
+      TEST EDI,EDI\n
+      JL +29; (0x108)\n
+    </data>
+    </node>
+  <node id="8">
+    <data key="node_content">
+      INC EDI\n
+      XOR ESI{@i},ESI\n
+    </data>
+    </node>
+  <node id="9">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      MOV EDX,ESI{@i}\n
+      CALL TList.Get{#$AF}\n
+      MOV EDX,EAX\n
+      MOV EAX,EBX{@Node}\n
+      CALL TList.Add{#$B4}\n
+      INC ESI{@i}\n
+      DEC EDI\n
+      JNE -26; (0xEE)\n
+    </data>
+    </node>
+  <node id="10">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      MOV EDX,DWORD PTR [EAX+4]\n
+      MOV EAX,DWORD PTR [ESP{Body}]\n
+      MOV EAX,DWORD PTR [EAX]\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,DWORD PTR [EBX+28{@Node^+28}]\n
+      TEST EAX,EAX\n
+      JE +15; (0x12E)\n
+    </data>
+    </node>
+  <node id="11">
+    <data key="node_content">
+      CMP DWORD PTR [EBP+28{@Next^+28}],0\n
+      JE +9; (0x12E)\n
+    </data>
+    </node>
+  <node id="12">
+    <data key="node_content">
+      MOV EDX,DWORD PTR [EBP+28{@Next^+28}]\n
+      MOV EDX,DWORD PTR [EDX+4]\n
+      MOV DWORD PTR [EAX+4],EDX\n
+    </data>
+    </node>
+  <node id="13">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBX+24{@Node^+24}]\n
+      TEST EAX,EAX\n
+      JE +15; (0x144)\n
+    </data>
+    </node>
+  <node id="14">
+    <data key="node_content">
+      CMP DWORD PTR [EBP+24{@Next^+24}],0\n
+      JE +9; (0x144)\n
+    </data>
+    </node>
+  <node id="15">
+    <data key="node_content">
+      MOV EDX,DWORD PTR [EBP+24{@Next^+24}]\n
+      MOV EDX,DWORD PTR [EDX+4]\n
+      MOV DWORD PTR [EAX+4],EDX\n
+    </data>
+    </node>
+  <node id="16">
+    <data key="node_content">
+      POP EDX\n
+      POP EBP{Body}\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "16"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "16"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "16"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "16"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "7"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "6"/>
+  <edge id="6" source = "6" target = "6"/>
+  <edge id="6" source = "6" target = "7"/>
+  <edge id="7" source = "7" target = "10"/>
+  <edge id="7" source = "7" target = "8"/>
+  <edge id="8" source = "8" target = "9"/>
+  <edge id="9" source = "9" target = "9"/>
+  <edge id="9" source = "9" target = "10"/>
+  <edge id="10" source = "10" target = "13"/>
+  <edge id="10" source = "10" target = "11"/>
+  <edge id="11" source = "11" target = "13"/>
+  <edge id="11" source = "11" target = "12"/>
+  <edge id="12" source = "12" target = "13"/>
+  <edge id="13" source = "13" target = "16"/>
+  <edge id="13" source = "13" target = "14"/>
+  <edge id="14" source = "14" target = "16"/>
+  <edge id="14" source = "14" target = "15"/>
+  <edge id="15" source = "15" target = "16"/>
+end;
+
+function TCtrlFlowNode.GetExprByOpC (Self: TCtrlFlowNode;
+  var Instr: TInstruction): System.Boolean;
+var
+  Result: System.Boolean;
+  R: CILExpr.TCILExpr;
+  Arg: CILExpr.TCILExpr;
+  Arg1: CILExpr.TCILExpr;
+  Cond: CILExpr.TCILExpr;
+  IfSt: CILExpr.TCILExpr;
+  CS: PCaseSelector;
+  D: DCURecs.TDCURec;
+  Args: DCURecs.TDCURec;
+  ProcArgs: Classes.TList;
+  U: DCU32.TUnit;
+  Fix: FixUp.PFixupRec;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBP\n
+      MOV EBP,ESP\n
+      MOV ECX,$00000017\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      PUSH $00\n
+      PUSH $00\n
+      DEC ECX\n
+      JNE -7; (0x8)\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      PUSH ECX\n
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      MOV ESI,EDX\n
+      MOV EBX,EAX\n
+      XOR EAX,EAX\n
+      PUSH EBP\n
+      PUSH TCtrlFlowNode.GetExprByOpC{#$162}+5124\n
+      PUSH DWORD PTR FS:[EAX]\n
+      MOV DWORD PTR FS:[EAX],ESP\n
+      MOV EAX,DWORD PTR [ESI{Instr}]\n
+      MOV EAX,DWORD PTR [EAX+8]\n
+      CALL TCILOpCode.GetCode{#$9A}\n
+      AND EAX,$000000FF\n
+      CMP EAX,$000000C1\n
+      JA +5031; (0x13E6)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV AL,BYTE PTR [EAX+'' {TCtrlFlowNode.GetExprByOpC{#$162}+76}]\n
+      JMP DWORD PTR [4*EAX+TCtrlFlowNode.GetExprByOpC{#$162}+270],NEAR\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      XOR EAX,EAX\n
+      POP EDX\n
+      POP ECX\n
+      POP ECX\n
+      MOV DWORD PTR FS:[EAX],EDX\n
+      PUSH 'ŠEÿ_^[‹å]Ã' {TCtrlFlowNode.GetExprByOpC{#$162}+5131}\n
+      LEA EAX,DWORD PTR [EBP-188]\n
+      MOV EDX,$00000028\n
+      CALL @LStrArrayClr{#$D7}\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "4"/>
+  <edge id="2" source = "2" target = "3"/>
+end;
+
+procedure TCtrlFlowNode.BuildILAst (Self: TCtrlFlowNode);
+var
+  i: System.Integer;
+  j: System.Integer;
+  LInd: System.Integer;
+  Instr: TInstruction;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP{j}\n
+      PUSH ECX\n
+      MOV EBX,EAX\n
+      MOV EBP{j},ESP{j}\n
+      MOV ESI,DWORD PTR [EBX+8{@Self^+8}]\n
+      DEC ESI\n
+      TEST ESI,ESI\n
+      JL +40; (0x39)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC ESI\n
+      XOR EDI{@i},EDI\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EDX,EDI{@i}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV DWORD PTR [EBP{j}],EAX\n
+      MOV EDX,EBP{j}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TCtrlFlowNode.GetExprByOpC{#$162}\n
+      MOV EAX,DWORD PTR [EBP{j}]\n
+      CMP DWORD PTR [EAX+12],0\n
+      JE +3; (0x35)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      INC DWORD PTR [EBX+92{@Self.FLinesCnt}]\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      INC EDI{@i}\n
+      DEC ESI\n
+      JNE -37; (0x14)\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      POP EDX\n
+      POP EBP{j}\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "5"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "4"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "2"/>
+  <edge id="4" source = "4" target = "5"/>
+end;
+
+function TCtrlFlowNode.GetStr (Self: TCtrlFlowNode): System.AnsiString;
+var
+  result Result: System.AnsiString;
+  i: System.Integer;
+  j: System.Integer;
+  Instr: TInstruction;
+  Expr: CILExpr.TCILExpr;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBP{j}\n
+      MOV EBP{j},ESP{j}\n
+      ADD ESP{j},-16\n
+      PUSH EBX\n
+      PUSH ESI\n
+      XOR ECX,ECX\n
+      MOV DWORD PTR [EBP-16],ECX\n
+      MOV DWORD PTR [EBP-8{Result}],EDX\n
+      MOV DWORD PTR [EBP-4{Self}],EAX\n
+      XOR EAX,EAX\n
+      PUSH EBP{j}\n
+      PUSH TCtrlFlowNode.GetStr{#$177}+146\n
+      PUSH DWORD PTR FS:[EAX]\n
+      MOV DWORD PTR FS:[EAX],ESP{j}\n
+      MOV EAX,DWORD PTR [EBP-8{Result}]\n
+      CALL @LStrClr{#$DA}\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      MOV ESI,DWORD PTR [EAX+8]\n
+      DEC ESI\n
+      TEST ESI,ESI\n
+      JL +72; (0x7C)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC ESI\n
+      MOV DWORD PTR [EBP-12{i}],$00000000\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EDX,DWORD PTR [EBP-12{i}]\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      CALL TList.Get{#$AF}\n
+      MOV EBX{@Instr},EAX\n
+      CMP DWORD PTR [EBX+12{@Instr.FExpr}],0\n
+      JE +39; (0x76)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBP-8{Result}]\n
+      PUSH DWORD PTR [EAX]\n
+      LEA ECX,DWORD PTR [EBP-16]\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [EBX+12{@Instr.FExpr}]\n
+      MOV EBX{@Instr},DWORD PTR [EAX]\n
+      CALL DWORD PTR [EBX+12{@Instr.FExpr}],NEAR\n
+      PUSH DWORD PTR [EBP-16]\n
+      PUSH ' ' {TCtrlFlowNode.GetStr{#$177}+168}\n
+      MOV EAX,DWORD PTR [EBP-8{Result}]\n
+      MOV EDX,$00000003\n
+      CALL @LStrCatN{#$D6}\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      INC DWORD PTR [EBP-12{i}]\n
+      DEC ESI\n
+      JNE -64; (0x3C)\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      XOR EAX,EAX\n
+      POP EDX\n
+      POP ECX\n
+      POP ECX\n
+      MOV DWORD PTR FS:[EAX],EDX\n
+      PUSH '^[‹å]Ã' {TCtrlFlowNode.GetStr{#$177}+153}\n
+      LEA EAX,DWORD PTR [EBP-16]\n
+      CALL @LStrClr{#$DA}\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "5"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "4"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "2"/>
+  <edge id="4" source = "4" target = "5"/>
+end;
+
+procedure TCtrlFlowNode.AddInRef (Self: TCtrlFlowNode;
+  CmdSeq: TCtrlFlowNode);
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV EAX{@Self},DWORD PTR [EAX+60{@Self.FInEdges}]\n
+      CALL TList.Add{#$B4}\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function TCtrlFlowNode.AddCmd (Self: TCtrlFlowNode;
+  AStart: System.Cardinal; ASize: System.Cardinal): DasmCF.TCmd;
+var
+  Result: DasmCF.TCmd;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP\n
+      MOV EBP,ECX\n
+      MOV ESI,EDX\n
+      MOV EBX{@Self},EAX\n
+      MOV EAX,DWORD PTR [ByteCode{#$FC}]\n
+      MOV EAX,DWORD PTR [EAX]\n
+      PUSH EAX\n
+      MOV ECX,ESI{@AStart}\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_DV_TInstruction{#$11E}]\n
+      CALL TInstruction.Create0{#$19E}\n
+      MOV EDI{@Result},EAX\n
+      MOV EDX,EDI{@Result}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Add{#$B4}\n
+      ADD EBP{@ASize},ESI{@AStart}\n
+      SUB EBP{@ASize},DWORD PTR [EBX+16{@Self^+16}]\n
+      MOV DWORD PTR [EBX+20{@Self^+20}],EBP{@ASize}\n
+      MOV EAX,EDI{@Result}\n
+      POP EBP\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function TCtrlFlowNode.GetInEdgeCnt (Self: TCtrlFlowNode): System.Integer;
+var
+  Result: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV EDX,DWORD PTR [EAX+60{@Self.FInEdges}]\n
+      MOV ECX,DWORD PTR [EDX+8]\n
+      TEST ECX,ECX\n
+      JL +4; (0xE)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      TEST EDX,EDX\n
+      JNE +3; (0x11)\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      XOR EAX,EAX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV EAX,ECX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "2"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "3"/>
+  <edge id="1" source = "1" target = "2"/>
+end;
+
+function TCtrlFlowNode.GetInEdges (Self: TCtrlFlowNode): Classes.TList;
+var
+  Result: Classes.TList;
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EAX+60{@Self.FInEdges}]\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function TCtrlFlowNode.GetIncoming (Self: TCtrlFlowNode): TPredcessors;
+var
+  Result: TPredcessors;
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EAX+64{@Self.FIncoming}]\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function TCtrlFlowNode.GetOutgoing (Self: TCtrlFlowNode): Classes.TList;
+var
+  Result: Classes.TList;
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EAX+68{@Self.FOutgoing}]\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function TCtrlFlowNode.GetNext (Self: TCtrlFlowNode): DasmCF.PCmdSeqRef;
+var
+  Result: DasmCF.PCmdSeqRef;
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EAX+24{@Self^+24}]\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function TCtrlFlowNode.GetNextCond (Self: TCtrlFlowNode):
+  DasmCF.PCmdSeqRef;
+var
+  Result: DasmCF.PCmdSeqRef;
+begin
+  <node id="0">
+    <data key="node_content">
+      XOR EDX{@Result},EDX\n
+      MOV ECX,DWORD PTR [EAX+28{@Self^+28}]\n
+      TEST ECX,ECX\n
+      JE +2; (0xB)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      MOV EDX,ECX\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EAX,EDX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "2"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+end;
+
+function TCtrlFlowNode.GetStart (Self: TCtrlFlowNode): TInstruction;
+var
+  Result: TInstruction;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      MOV EBX{@Self},EAX\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.First{#$B6}\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function TCtrlFlowNode.GetEnd (Self: TCtrlFlowNode): TInstruction;
+var
+  Result: TInstruction;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      MOV EBX{@Self},EAX\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Last{#$B2}\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+procedure TInstruction.Create0 (Self: TInstruction; _Dv_: false..true;
+  AOfs: System.Integer; ByteCode: CILOpCode.TCILOpCode);
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBP\n
+      MOV EBP,ESP\n
+      PUSH EBX\n
+      PUSH ESI\n
+      TEST DL,DL\n
+      JE +8; (0x11)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      ADD ESP,-16\n
+      CALL @ClassCreate{#$CE}\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EBX,EDX\n
+      MOV ESI{@Self},EAX\n
+      XOR EDX,EDX\n
+      MOV EAX,ESI{@Self}\n
+      CALL TCmd.Create{#$55}\n
+      MOV EAX,DWORD PTR [EBP+8{ByteCode}]\n
+      MOV DWORD PTR [ESI+8{@Self.FByteCode}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILExpr{#$44}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+12{@Self.FExpr}],EAX\n
+      XOR EAX,EAX\n
+      MOV DWORD PTR [ESI+1044{@Self.FArgCnt}],EAX\n
+      XOR EAX,EAX\n
+      MOV DWORD PTR [ESI+12{@Self.FExpr}],EAX\n
+      MOV EAX,ESI{@Self}\n
+      TEST BL{@_Dv_},BL{@_Dv_}\n
+      JE +15; (0x55)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      CALL @AfterConstruction{#$CF}\n
+      POP WORD PTR FS:[$00000000]\n
+      ADD ESP,12\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EAX,ESI{@Self}\n
+      POP ESI\n
+      POP EBX\n
+      POP EBP\n
+      RET NEAR,4\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "2"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "4"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "4"/>
+end;
+
+function TInstruction.GetArg (Self: TInstruction; index: System.Integer):
+  System.Longint;
+var
+  Result: System.Longint;
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EAX+4*EDX+20{@Self.FSArgs}]\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+procedure TInstruction.SetArg (Self: TInstruction; index: System.Integer;
+  Value: System.Longint);
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV DWORD PTR [EAX+4*EDX+20{@Self.FSArgs}],ECX{@Value}\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+procedure TInstruction.AsString (Self: TInstruction);
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBP\n
+      MOV EBP,ESP\n
+      PUSH $00\n
+      PUSH EBX\n
+      MOV EBX,EAX\n
+      XOR EAX,EAX\n
+      PUSH EBP\n
+      PUSH TInstruction.AsString{#$1AB}+63\n
+      PUSH DWORD PTR FS:[EAX]\n
+      MOV DWORD PTR FS:[EAX],ESP\n
+      LEA EDX,DWORD PTR [EBP-4]\n
+      MOV EAX,DWORD PTR [EBX+8{@Self.FByteCode}]\n
+      CALL TCILOpCode.Name{#$9B}\n
+      MOV EAX,DWORD PTR [EBP-4]\n
+      CALL PutS{#$5B}\n
+      XOR EAX,EAX\n
+      POP EDX\n
+      POP ECX\n
+      POP ECX\n
+      MOV DWORD PTR FS:[EAX],EDX\n
+      PUSH TInstruction.AsString{#$1AB}+70\n
+      LEA EAX,DWORD PTR [EBP-4]\n
+      CALL @LStrClr{#$DA}\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function IsUnconditionalBranch (ByteCode: CILOpCode.TCILOpCode):
+  System.Boolean;
+var
+  Result: System.Boolean;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      MOV ESI{@ByteCode},EAX\n
+      XOR EBX{@Result},EBX\n
+      MOV EAX,ESI{@ByteCode}\n
+      CALL TCILOpCode.GetOpCodeType{#$9C}\n
+      CMP AL,$04\n
+      JE +32; (0x31)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      MOV EAX,ESI{@ByteCode}\n
+      CALL TCILOpCode.GetFlowControl{#$9F}\n
+      SUB AL,$01\n
+      JB +15; (0x2B)\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      DEC EAX\n
+      SUB AL,$02\n
+      JB +14; (0x2F)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      DEC AL\n
+      JE +10; (0x2F)\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      ADD AL,$FE\n
+      SUB AL,$02\n
+      JNB +6; (0x31)\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      MOV BL,$01\n
+      JMP +2; (0x31)\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      XOR EBX,EBX\n
+    </data>
+    </node>
+  <node id="7">
+    <data key="node_content">
+      MOV EAX,EBX\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "7"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "5"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "6"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "6"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "7"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "7"/>
+  <edge id="6" source = "6" target = "7"/>
+end;
+
+procedure TMethodBody.Create (Self: TMethodBody; _Dv_: false..true;
+  AStart: System.Integer; ASize: System.Integer; Ctx: TCILCtx);
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBP\n
+      MOV EBP,ESP\n
+      ADD ESP,-12\n
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      TEST DL,DL\n
+      JE +8; (0x15)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      ADD ESP,-16\n
+      CALL @ClassCreate{#$CE}\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV ESI,DWORD PTR [EBP+8]\n
+      LEA EDI,DWORD PTR [EBP-12{Ctx.Args}]\n
+      MOVSD\n
+      MOVSD\n
+      MOVSD\n
+      MOV EBX,EDX\n
+      MOV ESI{@Self},EAX\n
+      MOV EAX,DWORD PTR [EBP+12{ASize}]\n
+      PUSH EAX\n
+      XOR EDX,EDX\n
+      MOV EAX,ESI{@Self}\n
+      CALL TProc.Create{#$56}\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+28{@Self.FCtx.Args}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV DWORD PTR [ESI+32{@Self.FCtx.Locals}],EAX\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILStack{#$17}]\n
+      CALL TCILStack.Create{#$18}\n
+      MOV DWORD PTR [ESI+36{@Self.FCtx.CILStack}],EAX\n
+      MOV EAX,DWORD PTR [EBP-12{Ctx.Args}]\n
+      MOV DWORD PTR [ESI+28{@Self.FCtx.Args}],EAX\n
+      MOV EAX,DWORD PTR [EBP-8{Ctx.Locals}]\n
+      MOV DWORD PTR [ESI+32{@Self.FCtx.Locals}],EAX\n
+      MOV EAX,DWORD PTR [EBP-4{Ctx.CILStack}]\n
+      MOV DWORD PTR [ESI+36{@Self.FCtx.CILStack}],EAX\n
+      XOR EAX,EAX\n
+      MOV DWORD PTR [ESI+40{@Self.FLInd}],EAX\n
+      MOV EAX,ESI{@Self}\n
+      TEST BL{@_Dv_},BL{@_Dv_}\n
+      JE +15; (0x88)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      CALL @AfterConstruction{#$CF}\n
+      POP WORD PTR FS:[$00000000]\n
+      ADD ESP,12\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EAX,ESI{@Self}\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      MOV ESP,EBP\n
+      POP EBP\n
+      RET NEAR,8\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "2"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "4"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "4"/>
+end;
+
+procedure TMethodBody.Destroy (Self: TMethodBody; _Dv_: false..true);
+var
+  i: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP\n
+      CALL @BeforeDestruction{#$D1}\n
+      MOV EBX,EDX\n
+      MOV EDI{@Self},EAX\n
+      MOV EBP,DWORD PTR [EDI+8{@Self^+8}]\n
+      DEC EBP\n
+      TEST EBP,EBP\n
+      JL +23; (0x2C)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC EBP\n
+      XOR ESI{@i},ESI\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EDI{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV DL,$01\n
+      MOV ECX,DWORD PTR [EAX]\n
+      CALL DWORD PTR [ECX-4],NEAR\n
+      INC ESI{@i}\n
+      DEC EBP\n
+      JNE -20; (0x18)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      TEST BL{@_Dv_},BL{@_Dv_}\n
+      JLE +7; (0x37)\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EAX,EDI{@Self}\n
+      CALL @ClassDestroy{#$D2}\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      POP EBP\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "3"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "2"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "5"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "5"/>
+end;
+
+procedure TMethodBody.Free (Self: TMethodBody; _Dv_: false..true);
+var
+  i: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP\n
+      CALL @BeforeDestruction{#$D1}\n
+      MOV EBX,EDX\n
+      MOV EDI{@Self},EAX\n
+      MOV EBP,DWORD PTR [EDI+8{@Self^+8}]\n
+      DEC EBP\n
+      TEST EBP,EBP\n
+      JL +23; (0x2C)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC EBP\n
+      XOR ESI{@i},ESI\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EDI{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV DL,$01\n
+      MOV ECX,DWORD PTR [EAX]\n
+      CALL DWORD PTR [ECX-4],NEAR\n
+      INC ESI{@i}\n
+      DEC EBP\n
+      JNE -20; (0x18)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      TEST BL{@_Dv_},BL{@_Dv_}\n
+      JLE +7; (0x37)\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EAX,EDI{@Self}\n
+      CALL @ClassDestroy{#$D2}\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      POP EBP\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "3"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "2"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "5"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "5"/>
+end;
+
+procedure TMethodBody.SetState (Self: TMethodBody);
+var
+  i: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP\n
+      MOV EBX{@Self},EAX\n
+      MOV EDI,DWORD PTR [EBX+8{@Self^+8}]\n
+      DEC EDI\n
+      TEST EDI,EDI\n
+      JL +161; (0xB3)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC EDI\n
+      XOR ESI{@i},ESI\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      PUSH $00\n
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV EAX,DWORD PTR [EAX+36]\n
+      XOR ECX,ECX\n
+      MOV EDX,DWORD PTR [EBX+28{@Self.FCtx.Args}]\n
+      CALL TList.Assign{#$B5}\n
+      PUSH $00\n
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV EAX,DWORD PTR [EAX+40]\n
+      XOR ECX,ECX\n
+      MOV EDX,DWORD PTR [EBX+32{@Self.FCtx.Locals}]\n
+      CALL TList.Assign{#$B5}\n
+      PUSH $00\n
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV EAX,DWORD PTR [EAX+44]\n
+      XOR ECX,ECX\n
+      MOV EDX,DWORD PTR [EBX+36{@Self.FCtx.CILStack}]\n
+      CALL TList.Assign{#$B5}\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV EBP,EAX\n
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV DWORD PTR [EAX+48],EBP\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILArgs{#$1E}]\n
+      CALL TObject.Create{#$CD}\n
+      MOV EBP,EAX\n
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV DWORD PTR [EAX+52],EBP\n
+      MOV DL,$01\n
+      MOV EAX,DWORD PTR [_Dn_TCILStack{#$17}]\n
+      CALL TCILStack.Create{#$18}\n
+      MOV EBP,EAX\n
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV DWORD PTR [EAX+56],EBP\n
+      INC ESI{@i}\n
+      DEC EDI\n
+      JNE -158; (0x15)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      POP EBP\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "3"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "2"/>
+  <edge id="2" source = "2" target = "3"/>
+end;
+
+procedure TMethodBody.ResetVisited (Self: TMethodBody);
+var
+  i: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      MOV EDI{@Self},EAX\n
+      MOV EBX,DWORD PTR [EDI+8{@Self^+8}]\n
+      DEC EBX\n
+      TEST EBX,EBX\n
+      JL +20; (0x21)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC EBX\n
+      XOR ESI{@i},ESI\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EDI{@Self}\n
+      CALL TList.Get{#$AF}\n
+      MOV BYTE PTR [EAX+88],$00\n
+      INC ESI{@i}\n
+      DEC EBX\n
+      JNE -17; (0x10)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "3"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "2"/>
+  <edge id="2" source = "2" target = "3"/>
+end;
+
+procedure TMethodBody.CreateCtrFlowEdges (Self: TMethodBody);
+var
+  i: System.Integer;
+  CtrFlowNode: TCtrlFlowNode;
+  EOpC: TInstruction;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP{Self}\n
+      PUSH ECX\n
+      MOV DWORD PTR [ESP{Self}],EAX\n
+      MOV EAX,DWORD PTR [ESP{Self}]\n
+      MOV EDI,DWORD PTR [EAX+8]\n
+      DEC EDI\n
+      TEST EDI,EDI\n
+      JLE +92; (0x6F)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      MOV EBP{@i},$00000001\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EDX,EBP{@i}\n
+      MOV EAX,DWORD PTR [ESP{Self}]\n
+      CALL TProc.GetCmdSeq{#$57}\n
+      MOV EBX{@CtrFlowNode},EAX\n
+      MOV EAX,EBX{@CtrFlowNode}\n
+      CALL TCtrlFlowNode.GetEnd{#$19B}\n
+      MOV ESI{@EOpC},EAX\n
+      TEST ESI{@EOpC},ESI{@EOpC}\n
+      JE +58; (0x6B)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [ESI+8{@EOpC.FByteCode}]\n
+      CALL IsUnconditionalBranch{#$1AD}\n
+      TEST AL,AL\n
+      JNE +46; (0x6B)\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EAX,EBX{@CtrFlowNode}\n
+      CALL TCtrlFlowNode.GetNext{#$192}\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      PUSH EAX\n
+      MOV EAX,EBX{@CtrFlowNode}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      POP EDX\n
+      CALL TList.Add{#$B4}\n
+      MOV EAX,EBX{@CtrFlowNode}\n
+      CALL TCtrlFlowNode.GetNext{#$192}\n
+      MOV EAX,DWORD PTR [EAX+4]\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBX{@CtrFlowNode}\n
+      CALL TList.Add{#$B4}\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      INC EBP{@i}\n
+      DEC EDI\n
+      JNE -87; (0x18)\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      POP EDX\n
+      POP EBP{Self}\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "6"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "5"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "5"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "2"/>
+  <edge id="5" source = "5" target = "6"/>
+end;
+
+procedure TMethodBody.ComputeDominance (Self: TMethodBody);
+var
+  EntryPoint: TCtrlFlowNode;
+  NewIDom: TCtrlFlowNode;
+  b: TCtrlFlowNode;
+  p: TCtrlFlowNode;
+  Node: TCtrlFlowNode;
+  Changed: System.Boolean;
+  i: System.Integer;
+  j: System.Integer;
+  function Intersect (const b1: TCtrlFlowNode; const b2: TCtrlFlowNode):
+    TCtrlFlowNode;
+  var
+    Result: TCtrlFlowNode;
+    Finger1: TCtrlFlowNode;
+    Finger2: TCtrlFlowNode;
+  begin
+    <node id="0">
+      <data key="node_content">
+        PUSH EBP\n
+        MOV EBP,ESP\n
+        PUSH EBX\n
+        PUSH ESI\n
+        PUSH EDI\n
+        MOV EBX{@Finger1},EAX{@b1}\n
+        MOV ESI{@Finger2},EDX{@b2}\n
+        CMP ESI{@Finger2},EBX{@Finger1}\n
+        JE +78; (0x5C)\n
+      </data>
+      </node>
+    <node id="1">
+      <data key="node_content">
+        JMP +3; (0x13)\n
+      </data>
+      </node>
+    <node id="2">
+      <data key="node_content">
+        MOV EBX{@Finger1},DWORD PTR [EBX+76{@Finger1.FImmediateDominator}]\n
+      </data>
+      </node>
+    <node id="3">
+      <data key="node_content">
+        MOV EAX,DWORD PTR [EBP+8]\n
+        MOV EAX,DWORD PTR [EAX-4]\n
+        MOV EDX,EBX{@Finger1}\n
+        CALL TList.IndexOf{#$B1}\n
+        MOV EDI,EAX\n
+        MOV EAX,DWORD PTR [EBP+8]\n
+        MOV EAX,DWORD PTR [EAX-4]\n
+        MOV EDX,ESI{@Finger2}\n
+        CALL TList.IndexOf{#$B1}\n
+        CMP EDI,EAX\n
+        JG -35; (0x10)\n
+      </data>
+      </node>
+    <node id="4">
+      <data key="node_content">
+        JMP +3; (0x38)\n
+      </data>
+      </node>
+    <node id="5">
+      <data key="node_content">
+        MOV ESI{@Finger2},DWORD PTR [ESI+76{@Finger2.FImmediateDominator}]\n
+      </data>
+      </node>
+    <node id="6">
+      <data key="node_content">
+        MOV EAX,DWORD PTR [EBP+8]\n
+        MOV EAX,DWORD PTR [EAX-4]\n
+        MOV EDX,ESI{@Finger2}\n
+        CALL TList.IndexOf{#$B1}\n
+        MOV EDI,EAX\n
+        MOV EAX,DWORD PTR [EBP+8]\n
+        MOV EAX,DWORD PTR [EAX-4]\n
+        MOV EDX,EBX{@Finger1}\n
+        CALL TList.IndexOf{#$B1}\n
+        CMP EDI,EAX\n
+        JG -35; (0x35)\n
+      </data>
+      </node>
+    <node id="7">
+      <data key="node_content">
+        CMP ESI{@Finger2},EBX{@Finger1}\n
+        JNE -73; (0x13)\n
+      </data>
+      </node>
+    <node id="8">
+      <data key="node_content">
+        MOV EAX,EBX{@Finger1}\n
+        POP EDI\n
+        POP ESI\n
+        POP EBX\n
+        POP EBP\n
+        RET NEAR\n
+      </data>
+      </node>
+    <edge id="0" source = "0" target = "8"/>
+    <edge id="0" source = "0" target = "1"/>
+    <edge id="1" source = "1" target = "3"/>
+    <edge id="2" source = "2" target = "3"/>
+    <edge id="3" source = "3" target = "2"/>
+    <edge id="3" source = "3" target = "4"/>
+    <edge id="4" source = "4" target = "6"/>
+    <edge id="5" source = "5" target = "6"/>
+    <edge id="6" source = "6" target = "5"/>
+    <edge id="6" source = "6" target = "7"/>
+    <edge id="7" source = "7" target = "3"/>
+    <edge id="7" source = "7" target = "8"/>
+  end;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBP\n
+      MOV EBP,ESP\n
+      ADD ESP,-24\n
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      MOV DWORD PTR [EBP-4{Self}],EAX\n
+      XOR EDX,EDX\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      CALL TProc.GetCmdSeq{#$57}\n
+      MOV DWORD PTR [EBP-8{EntryPoint}],EAX\n
+      MOV EAX,DWORD PTR [EBP-8{EntryPoint}]\n
+      MOV EDX,DWORD PTR [EBP-8{EntryPoint}]\n
+      MOV DWORD PTR [EAX+76],EDX\n
+      MOV BYTE PTR [EBP-13{Changed}],$01\n
+      JMP +155; (0xC6)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      CALL TMethodBody.ResetVisited{#$1C1}\n
+      MOV EAX,DWORD PTR [EBP-8{EntryPoint}]\n
+      MOV BYTE PTR [EAX+88],$01\n
+      MOV BYTE PTR [EBP-13{Changed}],$00\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      MOV EAX,DWORD PTR [EAX+8]\n
+      DEC EAX\n
+      TEST EAX,EAX\n
+      JLE +125; (0xC6)\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV DWORD PTR [EBP-24],EAX\n
+      MOV DWORD PTR [EBP-20{i}],$00000001\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV EDX,DWORD PTR [EBP-20{i}]\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      CALL TProc.GetCmdSeq{#$57}\n
+      MOV ESI{@b},EAX\n
+      MOV EAX,ESI{@b}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      CALL TPredcessors.GetFirstProcessed{#$129}\n
+      MOV DWORD PTR [EBP-12{NewIDom}],EAX\n
+      MOV EAX,ESI{@b}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EBX,DWORD PTR [EAX+8]\n
+      DEC EBX\n
+      TEST EBX,EBX\n
+      JLE +42; (0xA8)\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EDI{@j},$00000001\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      MOV EAX,ESI{@b}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EDI{@j}\n
+      CALL TList.Get{#$AF}\n
+      CMP DWORD PTR [EAX+76{@p.FImmediateDominator}],0\n
+      JE +13; (0xA4)\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      PUSH EBP\n
+      MOV EDX,DWORD PTR [EBP-12{NewIDom}]\n
+      CALL Intersect{#$1C9}\n
+      POP ECX\n
+      MOV DWORD PTR [EBP-12{NewIDom}],EAX{@p}\n
+    </data>
+    </node>
+  <node id="7">
+    <data key="node_content">
+      INC EDI{@j}\n
+      DEC EBX\n
+      JNE -37; (0x83)\n
+    </data>
+    </node>
+  <node id="8">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [ESI+76{@b.FImmediateDominator}]\n
+      CMP EAX,DWORD PTR [EBP-12{NewIDom}]\n
+      JE +10; (0xBA)\n
+    </data>
+    </node>
+  <node id="9">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EBP-12{NewIDom}]\n
+      MOV DWORD PTR [ESI+76{@b.FImmediateDominator}],EAX\n
+      MOV BYTE PTR [EBP-13{Changed}],$01\n
+    </data>
+    </node>
+  <node id="10">
+    <data key="node_content">
+      MOV BYTE PTR [ESI+88{@b.FVisited}],$01\n
+      INC DWORD PTR [EBP-20{i}]\n
+      DEC DWORD PTR [EBP-24]\n
+      JNE -115; (0x53)\n
+    </data>
+    </node>
+  <node id="11">
+    <data key="node_content">
+      CMP BYTE PTR [EBP-13{Changed}],$00\n
+      JNE -165; (0x2B)\n
+    </data>
+    </node>
+  <node id="12">
+    <data key="node_content">
+      MOV EDX,$00000001\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      CALL TProc.GetCmdSeq{#$57}\n
+      MOV EBX,EAX\n
+      MOV EDX,$00000001\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      CALL TProc.GetCmdSeq{#$57}\n
+      MOV DWORD PTR [EAX+76],EBX\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      MOV EAX,DWORD PTR [EAX+8]\n
+      DEC EAX\n
+      TEST EAX,EAX\n
+      JL +52; (0x12E)\n
+    </data>
+    </node>
+  <node id="13">
+    <data key="node_content">
+      INC EAX\n
+      MOV DWORD PTR [EBP-24],EAX\n
+      MOV DWORD PTR [EBP-20{i}],$00000000\n
+    </data>
+    </node>
+  <node id="14">
+    <data key="node_content">
+      MOV EDX,DWORD PTR [EBP-20{i}]\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      CALL TProc.GetCmdSeq{#$57}\n
+      MOV EDX,DWORD PTR [EAX+76{@Node.FImmediateDominator}]\n
+      TEST EDX,EDX\n
+      JE +15; (0x126)\n
+    </data>
+    </node>
+  <node id="15">
+    <data key="node_content">
+      CMP DWORD PTR [EBP-20{i}],1\n
+      JE +9; (0x126)\n
+    </data>
+    </node>
+  <node id="16">
+    <data key="node_content">
+      MOV EDX,DWORD PTR [EDX+72]\n
+      XCHG EAX{@Node},EDX\n
+      CALL TList.Add{#$B4}\n
+    </data>
+    </node>
+  <node id="17">
+    <data key="node_content">
+      INC DWORD PTR [EBP-20{i}]\n
+      DEC DWORD PTR [EBP-24]\n
+      JNE -41; (0x105)\n
+    </data>
+    </node>
+  <node id="18">
+    <data key="node_content">
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      MOV ESP,EBP\n
+      POP EBP\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "11"/>
+  <edge id="1" source = "1" target = "11"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "8"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "7"/>
+  <edge id="5" source = "5" target = "6"/>
+  <edge id="6" source = "6" target = "7"/>
+  <edge id="7" source = "7" target = "5"/>
+  <edge id="7" source = "7" target = "8"/>
+  <edge id="8" source = "8" target = "10"/>
+  <edge id="8" source = "8" target = "9"/>
+  <edge id="9" source = "9" target = "10"/>
+  <edge id="10" source = "10" target = "3"/>
+  <edge id="10" source = "10" target = "11"/>
+  <edge id="11" source = "11" target = "1"/>
+  <edge id="11" source = "11" target = "12"/>
+  <edge id="12" source = "12" target = "18"/>
+  <edge id="12" source = "12" target = "13"/>
+  <edge id="13" source = "13" target = "14"/>
+  <edge id="14" source = "14" target = "17"/>
+  <edge id="14" source = "14" target = "15"/>
+  <edge id="15" source = "15" target = "17"/>
+  <edge id="15" source = "15" target = "16"/>
+  <edge id="16" source = "16" target = "17"/>
+  <edge id="17" source = "17" target = "14"/>
+  <edge id="17" source = "17" target = "18"/>
+end;
+
+procedure TMethodBody.FindConditions (Self: TMethodBody;
+  var Body: TMethodBody);
+var
+  Changed: System.Boolean;
+  Node: TCtrlFlowNode;
+  i: System.Integer;
+  j: System.Integer;
+  Cond: CILExpr.TCILExpr;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP{Self}\n
+      ADD ESP{Self},-8\n
+      MOV EBP{Self},EDX\n
+      MOV DWORD PTR [ESP{Self}],EAX\n
+      MOV BL,$01\n
+      JMP +275; (0x126)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      XOR EBX{@Changed},EBX\n
+      MOV EAX,DWORD PTR [ESP{Self}]\n
+      MOV ESI,DWORD PTR [EAX+8]\n
+      DEC ESI\n
+      CMP ESI,0\n
+      JL +257; (0x126)\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      TEST BL{@Changed},BL{@Changed}\n
+      JNE +239; (0x11C)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV EDX,ESI{@i}\n
+      MOV EAX,DWORD PTR [ESP{Self}]\n
+      CALL TProc.GetCmdSeq{#$57}\n
+      MOV EDI{@Node},EAX\n
+      CMP DWORD PTR [EDI+8{@Node^+8}],1\n
+      JL +217; (0x11C)\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EAX,EDI{@Node}\n
+      CALL TList.Last{#$B2}\n
+      CMP DWORD PTR [EAX+12],0\n
+      JE +200; (0x11C)\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      CMP DWORD PTR [EDI+28{@Node^+28}],0\n
+      JE +181; (0x113)\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      MOV EAX,EDI{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV EAX,DWORD PTR [EAX+12]\n
+      CALL TObject.ClassType{#$D4}\n
+      CMP EAX,DWORD PTR [_Dn_TCILGoTo{#$F3}]\n
+      JNE +19; (0x88)\n
+    </data>
+    </node>
+  <node id="7">
+    <data key="node_content">
+      MOV EAX,EDI{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV EAX,DWORD PTR [EAX+12]\n
+      MOV EAX,DWORD PTR [EAX+8]\n
+      MOV DWORD PTR [ESP+4{Cond}],EAX\n
+      JMP +124; (0x104)\n
+    </data>
+    </node>
+  <node id="8">
+    <data key="node_content">
+      MOV EAX,EDI{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV EAX,DWORD PTR [EAX+12]\n
+      CALL TObject.ClassType{#$D4}\n
+      CMP EAX,DWORD PTR [_Dn_TCILIfThenElseBlock{#$E7}]\n
+      JNE +19; (0xB2)\n
+    </data>
+    </node>
+  <node id="9">
+    <data key="node_content">
+      MOV EAX,EDI{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV EAX,DWORD PTR [EAX+12]\n
+      MOV EAX,DWORD PTR [EAX+16]\n
+      MOV DWORD PTR [ESP+4{Cond}],EAX\n
+      JMP +82; (0x104)\n
+    </data>
+    </node>
+  <node id="10">
+    <data key="node_content">
+      MOV EAX,EDI{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV EAX,DWORD PTR [EAX+12]\n
+      CALL TObject.ClassType{#$D4}\n
+      CMP EAX,DWORD PTR [_Dn_TCILWhileSt{#$E9}]\n
+      JNE +19; (0xDC)\n
+    </data>
+    </node>
+  <node id="11">
+    <data key="node_content">
+      MOV EAX,EDI{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV EAX,DWORD PTR [EAX+12]\n
+      MOV EAX,DWORD PTR [EAX+12]\n
+      MOV DWORD PTR [ESP+4{Cond}],EAX\n
+      JMP +40; (0x104)\n
+    </data>
+    </node>
+  <node id="12">
+    <data key="node_content">
+      MOV EAX,EDI{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV EAX,DWORD PTR [EAX+12]\n
+      CALL TObject.ClassType{#$D4}\n
+      CMP EAX,DWORD PTR [_Dn_TCILRepeatSt{#$EB}]\n
+      JNE +41; (0x11C)\n
+    </data>
+    </node>
+  <node id="13">
+    <data key="node_content">
+      MOV EAX,EDI{@Node}\n
+      CALL TList.Last{#$B2}\n
+      MOV EAX,DWORD PTR [EAX+12]\n
+      MOV EAX,DWORD PTR [EAX+12]\n
+      MOV DWORD PTR [ESP+4{Cond}],EAX\n
+    </data>
+    </node>
+  <node id="14">
+    <data key="node_content">
+      MOV ECX,EBP{Body}\n
+      MOV EDX,DWORD PTR [ESP+4{Cond}]\n
+      MOV EAX,EDI{@Node}\n
+      CALL GetExpr{#$13B}\n
+      MOV EBX{@Changed},EAX\n
+    </data>
+    </node>
+  <node id="15">
+    <data key="node_content">
+      MOV EDX,EBP{Body}\n
+      MOV EAX,EDI{@Node}\n
+      CALL MergeOneWayB{#$15D}\n
+    </data>
+    </node>
+  <node id="16">
+    <data key="node_content">
+      DEC ESI{@i}\n
+      CMP ESI{@i},-1\n
+      JNE -257; (0x25)\n
+    </data>
+    </node>
+  <node id="17">
+    <data key="node_content">
+      TEST BL{@Changed},BL{@Changed}\n
+      JNE -283; (0x13)\n
+    </data>
+    </node>
+  <node id="18">
+    <data key="node_content">
+      POP ECX\n
+      POP EDX\n
+      POP EBP{Self}\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "17"/>
+  <edge id="1" source = "1" target = "17"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "16"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "16"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "16"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "15"/>
+  <edge id="5" source = "5" target = "6"/>
+  <edge id="6" source = "6" target = "8"/>
+  <edge id="6" source = "6" target = "7"/>
+  <edge id="7" source = "7" target = "14"/>
+  <edge id="8" source = "8" target = "10"/>
+  <edge id="8" source = "8" target = "9"/>
+  <edge id="9" source = "9" target = "14"/>
+  <edge id="10" source = "10" target = "12"/>
+  <edge id="10" source = "10" target = "11"/>
+  <edge id="11" source = "11" target = "14"/>
+  <edge id="12" source = "12" target = "16"/>
+  <edge id="12" source = "12" target = "13"/>
+  <edge id="13" source = "13" target = "14"/>
+  <edge id="14" source = "14" target = "15"/>
+  <edge id="15" source = "15" target = "16"/>
+  <edge id="16" source = "16" target = "2"/>
+  <edge id="16" source = "16" target = "17"/>
+  <edge id="17" source = "17" target = "1"/>
+  <edge id="17" source = "17" target = "18"/>
+end;
+
+procedure TMethodBody.BuildAst (Self: TMethodBody);
+var
+  i: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      MOV EDI{@Self},EAX\n
+      MOV EBX,DWORD PTR [EDI+8{@Self^+8}]\n
+      DEC EBX\n
+      TEST EBX,EBX\n
+      JL +21; (0x22)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC EBX\n
+      XOR ESI{@i},ESI\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EDI{@Self}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.BuildILAst{#$171}\n
+      INC ESI{@i}\n
+      DEC EBX\n
+      JNE -18; (0x10)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "3"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "2"/>
+  <edge id="2" source = "2" target = "3"/>
+end;
+
+procedure TMethodBody.Show (Self: TMethodBody);
+var
+  i: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      MOV EDI{@Self},EAX\n
+      MOV EBX,DWORD PTR [EDI+8{@Self^+8}]\n
+      DEC EBX\n
+      TEST EBX,EBX\n
+      JL +21; (0x22)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC EBX\n
+      XOR ESI{@i},ESI\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EDX,ESI{@i}\n
+      MOV EAX,EDI{@Self}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.Show{#$137}\n
+      INC ESI{@i}\n
+      DEC EBX\n
+      JNE -18; (0x10)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "3"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "2"/>
+  <edge id="2" source = "2" target = "3"/>
+end;
+
+procedure TMethodBody.ShowDom (Self: TMethodBody);
+var
+  i: System.Integer;
+  j: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBP\n
+      MOV EBP,ESP\n
+      XOR ECX,ECX\n
+      PUSH ECX\n
+      PUSH ECX\n
+      PUSH ECX\n
+      PUSH ECX\n
+      PUSH ECX\n
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      MOV DWORD PTR [EBP-4{Self}],EAX\n
+      XOR EAX,EAX\n
+      PUSH EBP\n
+      PUSH TMethodBody.ShowDom{#$1E7}+191\n
+      PUSH DWORD PTR FS:[EAX]\n
+      MOV DWORD PTR FS:[EAX],ESP\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      MOV EAX,DWORD PTR [EAX+8]\n
+      DEC EAX\n
+      TEST EAX,EAX\n
+      JL +123; (0xA4)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC EAX\n
+      MOV DWORD PTR [EBP-8],EAX\n
+      XOR EDI{@i},EDI\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      CALL NL{#$5A}\n
+      LEA EDX,DWORD PTR [EBP-16]\n
+      MOV EAX,EDI{@i}\n
+      CALL IntToStr{#$47}\n
+      MOV ECX,DWORD PTR [EBP-16]\n
+      LEA EAX,DWORD PTR [EBP-12]\n
+      MOV EDX,'BB ' {TMethodBody.ShowDom{#$1E7}+216}\n
+      CALL @LStrCat3{#$D5}\n
+      MOV EAX,DWORD PTR [EBP-12]\n
+      CALL PutS{#$5B}\n
+      CALL NL{#$5A}\n
+      MOV EDX,EDI{@i}\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      CALL TList.Get{#$AF}\n
+      MOV EAX,DWORD PTR [EAX+72]\n
+      MOV EBX,DWORD PTR [EAX+8]\n
+      DEC EBX\n
+      TEST EBX,EBX\n
+      JL +46; (0x9E)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      INC EBX\n
+      XOR ESI{@j},ESI\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV EDX,EDI{@i}\n
+      MOV EAX,DWORD PTR [EBP-4{Self}]\n
+      CALL TList.Get{#$AF}\n
+      MOV EAX,DWORD PTR [EAX+72]\n
+      MOV EDX,ESI{@j}\n
+      CALL TList.Get{#$AF}\n
+      MOV EAX,DWORD PTR [EAX+104]\n
+      LEA EDX,DWORD PTR [EBP-20]\n
+      CALL IntToStr{#$47}\n
+      MOV EAX,DWORD PTR [EBP-20]\n
+      CALL PutS{#$5B}\n
+      INC ESI{@j}\n
+      DEC EBX\n
+      JNE -43; (0x73)\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      INC EDI{@i}\n
+      DEC DWORD PTR [EBP-8]\n
+      JNE -117; (0x2F)\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      XOR EAX,EAX\n
+      POP EDX\n
+      POP ECX\n
+      POP ECX\n
+      MOV DWORD PTR FS:[EAX],EDX\n
+      PUSH '_^[‹å]Ã' {TMethodBody.ShowDom{#$1E7}+198}\n
+      LEA EAX,DWORD PTR [EBP-20]\n
+      MOV EDX,$00000003\n
+      CALL @LStrArrayClr{#$D7}\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "6"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "5"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "4"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "2"/>
+  <edge id="5" source = "5" target = "6"/>
+end;
+
+procedure TMethodBody.RemoveNode (Self: TMethodBody;
+  SrcNode: System.Pointer; TrgNode: System.Pointer);
+var
+  i: System.Integer;
+  j: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP\n
+      ADD ESP,-8\n
+      MOV EBX{@SrcNode},EDX\n
+      MOV EAX,EBX{@SrcNode}\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EAX,DWORD PTR [EAX+8]\n
+      DEC EAX\n
+      TEST EAX,EAX\n
+      JL +197; (0xE1)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      INC EAX\n
+      MOV DWORD PTR [ESP],EAX\n
+      XOR EBP{@i},EBP\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV ESI,EBX{@SrcNode}\n
+      MOV EAX,ESI\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBP{@i}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EBX{@SrcNode}\n
+      CALL TList.Remove{#$B3}\n
+      MOV EAX,ESI\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EAX,DWORD PTR [EAX+8]\n
+      DEC EAX\n
+      TEST EAX,EAX\n
+      JL +134; (0xD7)\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      INC EAX\n
+      MOV DWORD PTR [ESP+4],EAX\n
+      XOR EDI{@j},EDI\n
+    </data>
+    </node>
+  <node id="4">
+    <data key="node_content">
+      MOV ESI,EBX{@SrcNode}\n
+      MOV EAX,ESI\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EDI{@j}\n
+      CALL TList.Get{#$AF}\n
+      PUSH EAX\n
+      MOV EAX,ESI\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBP{@i}\n
+      CALL TList.Get{#$AF}\n
+      POP EDX\n
+      CALL TList.IndexOf{#$B1}\n
+      INC EAX\n
+      JNE +80; (0xD0)\n
+    </data>
+    </node>
+  <node id="5">
+    <data key="node_content">
+      MOV EAX,ESI\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EDI{@j}\n
+      CALL TList.Get{#$AF}\n
+      PUSH EAX\n
+      MOV EAX,ESI\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBP{@i}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      POP EDX\n
+      CALL TList.Add{#$B4}\n
+      MOV EAX,ESI\n
+      CALL TCtrlFlowNode.GetIncoming{#$18C}\n
+      MOV EDX,EBP{@i}\n
+      CALL TList.Get{#$AF}\n
+      PUSH EAX\n
+      MOV EAX,ESI\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      MOV EDX,EDI{@j}\n
+      CALL TList.Get{#$AF}\n
+      CALL TCtrlFlowNode.GetOutgoing{#$18F}\n
+      POP EDX\n
+      CALL TList.Add{#$B4}\n
+    </data>
+    </node>
+  <node id="6">
+    <data key="node_content">
+      INC EDI{@j}\n
+      DEC DWORD PTR [ESP+4]\n
+      JNE -127; (0x58)\n
+    </data>
+    </node>
+  <node id="7">
+    <data key="node_content">
+      INC EBP{@i}\n
+      DEC DWORD PTR [ESP]\n
+      JNE -191; (0x22)\n
+    </data>
+    </node>
+  <node id="8">
+    <data key="node_content">
+      POP ECX\n
+      POP EDX\n
+      POP EBP\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "8"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "7"/>
+  <edge id="2" source = "2" target = "3"/>
+  <edge id="3" source = "3" target = "4"/>
+  <edge id="4" source = "4" target = "6"/>
+  <edge id="4" source = "4" target = "5"/>
+  <edge id="5" source = "5" target = "6"/>
+  <edge id="6" source = "6" target = "4"/>
+  <edge id="6" source = "6" target = "7"/>
+  <edge id="7" source = "7" target = "2"/>
+  <edge id="7" source = "7" target = "8"/>
+end;
+
+function TMethodBody.GetIndex (Self: TMethodBody; I: TCtrlFlowNode):
+  System.Integer;
+var
+  Result: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      CALL TList.IndexOf{#$B1}\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function TMethodBody.GetEntryPoint (Self: TMethodBody): TCtrlFlowNode;
+var
+  Result: TCtrlFlowNode;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      MOV EBX{@Self},EAX\n
+      XOR EDX,EDX\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Get{#$AF}\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function TMethodBody.GetRegularExit (Self: TMethodBody): TCtrlFlowNode;
+var
+  Result: TCtrlFlowNode;
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV EAX,DWORD PTR [EAX+44{@Self.FRegularExit}]\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+procedure TMethodBody.SetEntryPoint (Self: TMethodBody;
+  const Value: TCtrlFlowNode);
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV ECX,EDX{@Value}\n
+      XOR EDX{@Value},EDX{@Value}\n
+      CALL TList.Put{#$B7}\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+procedure TMethodBody.SetRegularExit (Self: TMethodBody;
+  const Value: TCtrlFlowNode);
+begin
+  <node id="0">
+    <data key="node_content">
+      MOV DWORD PTR [EAX+44{@Self.FRegularExit}],EDX{@Value}\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+function TCtrlFlowNode.RemoveGoToExpr (Self: TCtrlFlowNode;
+  Item: System.Pointer): System.Integer;
+var
+  Result: System.Integer;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBX\n
+      PUSH ESI\n
+      PUSH EDI\n
+      PUSH EBP\n
+      MOV ESI,EDX\n
+      MOV EBX{@Self},EAX\n
+      MOV EDI,DWORD PTR [ESI+12{@Item^+12}]\n
+      TEST EDI,EDI\n
+      JE +29; (0x2C)\n
+    </data>
+    </node>
+  <node id="1">
+    <data key="node_content">
+      MOV EAX,EDI\n
+      CALL TObject.ClassType{#$D4}\n
+      CMP EAX,DWORD PTR [_Dn_TCILGoToUnCond{#$F6}]\n
+      JNE +14; (0x2C)\n
+    </data>
+    </node>
+  <node id="2">
+    <data key="node_content">
+      MOV EDX,ESI{@Item}\n
+      MOV EAX,EBX{@Self}\n
+      CALL TList.Remove{#$B3}\n
+      MOV EBP{@Result},EAX\n
+      DEC DWORD PTR [EBX+92{@Self.FLinesCnt}]\n
+    </data>
+    </node>
+  <node id="3">
+    <data key="node_content">
+      MOV EAX,EBP{@Result}\n
+      POP EBP\n
+      POP EDI\n
+      POP ESI\n
+      POP EBX\n
+      RET NEAR\n
+    </data>
+    </node>
+  <edge id="0" source = "0" target = "3"/>
+  <edge id="0" source = "0" target = "1"/>
+  <edge id="1" source = "1" target = "3"/>
+  <edge id="1" source = "1" target = "2"/>
+  <edge id="2" source = "2" target = "3"/>
+end;
+
+procedure Finalization;
+begin
+  <node id="0">
+    <data key="node_content">
+      PUSH EBP\n
+      MOV EBP,ESP\n
+      XOR EAX,EAX\n
+      PUSH EBP\n
+      PUSH Finalization{#$205}+37\n
+      PUSH DWORD PTR FS:[EAX]\n
+      MOV DWORD PTR FS:[EAX],ESP\n
+      INC DWORD PTR [_DV_5{#$126}]\n
+      XOR EAX,EAX\n
+      POP EDX\n
+      POP ECX\n
+      POP ECX\n
+      MOV DWORD PTR FS:[EAX],EDX\n
+      PUSH Finalization{#$205}+44\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+procedure CILCtrlFlowGraph;
+begin
+  <node id="0">
+    <data key="node_content">
+      SUB DWORD PTR [_DV_5{#$126}],1\n
+      RET NEAR\n
+    </data>
+    </node>
+end;
+
+end.
+
+
