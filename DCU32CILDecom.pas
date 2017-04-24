@@ -23,7 +23,7 @@ uses
   CILCtrlFlowGraph,
   CILStack,
   Win64SEH,
-  DecomUtils;
+  DecomUtils  ;
 
 type
 
@@ -199,7 +199,7 @@ var
   TypeDef: TTypeDef;
   DCURec: TDCURec;
   Ctx: TCILCtx;
-  Instr: TInstruction;
+  Instr, PrevInstr: TInstruction;
   Part: TProcMemPart;
 
   procedure ShowNotParsedDump;
@@ -281,6 +281,11 @@ begin
           break;
         CmdSz := CodePtr-PrevCodePtr;
         Instr:= TInstruction.Create0(St.CmdOfs-St.BlOfs+St.Ofs0, ByteCode);
+        PrevInstr:= Instr;
+        Instr.IsProc:= false;
+        if ByteCode.Name = 'pop' then begin
+          PrevInstr.IsProc:= true;   
+        end;
         St.Seq.AddCmd(Instr,CmdSz);
         Instr.I4:= Instr.ByteCode.I4;
         Instr.Fix:= Instr.ByteCode.Fix;

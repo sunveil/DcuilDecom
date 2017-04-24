@@ -212,7 +212,7 @@ begin
             U.Show;
         end;
       finally
-        FreeDCU;
+        //FreeDCU;
       end ;
     except
       on E: Exception do begin

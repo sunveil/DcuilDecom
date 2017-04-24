@@ -32,7 +32,7 @@ end;
 function TCILArgs.GetArg(Ind: integer): TCILExpr;
 begin
   Result:= TCilLabel.Create('ARG');
-  if (Ind<0) or (Count<Ind) then
+  if (Ind<0) or (Count<=Ind) then
     Exit;
   Result:= TCILExpr(Items[Ind]);
 end;

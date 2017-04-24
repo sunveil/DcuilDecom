@@ -372,7 +372,6 @@ begin
         PutKW('begin');
     end;
   ShiftNLOfs(-2);
-
 end;
 
 { TCILCase }

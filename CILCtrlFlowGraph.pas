@@ -106,6 +106,7 @@ type
     FI4: integer;
     FFix: Integer;
     FFixupRec: PFixupRec;
+    FIsProc: boolean;
     FSArgs: array[byte] of LongInt;
     FArgCnt: integer;
     procedure SetArg(index: integer; Value: LongInt);
@@ -118,6 +119,7 @@ type
     property I4: integer read FI4 write FI4;
     property Fix: integer read FFix write FFix;
     property FixupRec: PFixupRec read FFixupRec write FFixupRec;
+    property IsProc: boolean read FIsProc write FIsProc; 
     property ArgCnt: integer read FArgCnt write FArgCnt;
     property SArgs[index: integer]: LongInt read GetArg write SetArg;
   end ;
@@ -550,7 +552,7 @@ end;
 
 function TCtrlFlowNode.GetExprByOpC(var Instr: TInstruction): boolean;
 var
-  R, Arg, Arg1 : TCILExpr;
+  R, Arg, Arg1, Arg2 : TCILExpr;
   Cond: TCILExpr;
   IfSt: TCILExpr;
   CS: PCaseSelector;
@@ -615,39 +617,58 @@ begin
         //Instr.FExpr:= TCILIntVal.Create(2,32);
         FInCtx.CILStack.PushExpr(TCILIntVal.Create(7,32));
       end;
+      Ldc_I4_8: begin
+        //Instr.FExpr:= TCILIntVal.Create(2,32);
+        FInCtx.CILStack.PushExpr(TCILIntVal.Create(7,32));
+      end;
       Ldc_I4_S: begin
         //Instr.FExpr:= TCILIntVal.Create(2,32);
         //Instr.FByteCode.GetVal;
         FInCtx.CILStack.PushExpr(TCILIntVal.Create(Instr.I4,32));
       end;
+      Ldc_I4_M1: begin
+        FInCtx.CILStack.PushExpr(TCILIntVal.Create(-1,32));
+      end;
       Stloc_0: begin
-        if FInCtx.Locals.Count > 0 then
+        //if FInCtx.Locals.Count > 0 then
           Instr.FExpr:= TCILAssign.Create(FInCtx.Locals.GetArg(0),FInCtx.CILStack.PopExpr);
           //FInCtx.Locals.SetArg(Instr.FExpr,0);
       end;
       Stloc_1: begin
-        if FInCtx.Locals.Count > 1 then
+        //if FInCtx.Locals.Count > 1 then
           Instr.FExpr:= TCILAssign.Create(FInCtx.Locals.GetArg(1),FInCtx.CILStack.PopExpr);
           //FInCtx.Locals.SetArg(Instr.FExpr,1);
       end;
       Stloc_2: begin
-        if FInCtx.Locals.Count > 2 then
+        //if FInCtx.Locals.Count > 2 then
           Instr.FExpr:= TCILAssign.Create(FInCtx.Locals.GetArg(2),FInCtx.CILStack.PopExpr);
           //FInCtx.Locals.SetArg(Instr.FExpr,2);
       end;
       Stloc_3: begin
-        if FInCtx.Locals.Count > 3 then
+        //if FInCtx.Locals.Count > 3 then
           Instr.FExpr:= TCILAssign.Create(FInCtx.Locals.GetArg(3),FInCtx.CILStack.PopExpr);
           //FInCtx.Locals.SetArg(Instr.FExpr,3);
       end;
       Stloc_S: begin
-        if FInCtx.Args.Count >= Instr.I4 then
+        //if FInCtx.Args.Count >= Instr.I4 then
           Instr.FExpr:= TCILAssign.Create(FInCtx.Locals.GetArg(Instr.I4),FInCtx.CILStack.PopExpr);
       end;
       Starg_S: begin
-        if FInCtx.Args.Count >= Instr.I4 then
+        //if FInCtx.Args.Count >= Instr.I4 then
           Instr.FExpr:= TCILAssign.Create(FInCtx.Args.GetArg(Instr.I4),FInCtx.CILStack.PopExpr);
           //FInCtx.Args.SetArg(Instr.FExpr,ByteCode.I4);
+      end;
+      Stelem_I1, Stelem_I2, Stelem_I4, Stelem_I8, Stelem_I: begin
+        Arg:= FInCtx.CILStack.PopExpr;
+        Arg1:= FInCtx.CILStack.PopExpr;
+        Arg2:= FInCtx.CILStack.PopExpr;
+        //FInCtx.CILStack.PushExpr(TCILAssign.Create(TCILArray.Create(Arg2, Arg1), Arg));
+        Instr.FExpr:= TCILAssign.Create(TCILArray.Create(Arg2, Arg1) , Arg);
+      end;
+      Ldelem_U1, Ldelem_I2, Ldelem_I4: begin
+        Arg:= FInCtx.CILStack.PopExpr;
+        Arg1:= FInCtx.CILStack.PopExpr;
+        FInCtx.CILStack.PushExpr(TCILArray.Create(Arg1, Arg));
       end;
       Ldloc_0: begin
         FInCtx.CILStack.PushExpr(FInCtx.Locals.GetArg(0));
@@ -686,8 +707,8 @@ begin
         FInCtx.CILStack.PushExpr(R);
       end;
       Ldloc_S: begin
-        FInCtx.CILStack.PushExpr(FInCtx.Args.GetArg(Instr.I4));
-        WriteLN(FInCtx.Args.GetArg(Instr.I4).AsString(false));
+        FInCtx.CILStack.PushExpr(FInCtx.Locals.GetArg(Instr.I4));
+        //WriteLN(FInCtx.Locals.GetArg(Instr.I4).AsString(false) + ' ' + IntToStr(Instr.I4));
       end;
       Add_: begin
         Arg1:= FInCtx.CILStack.PopExpr;
@@ -713,6 +734,18 @@ begin
         R:= TCILShl.Create(Arg,Arg1);
         FInCtx.CILStack.PushExpr(R);
       end;
+      Clt: begin
+        Arg1:= FInCtx.CILStack.PopExpr;
+        Arg:= FInCtx.CILStack.PopExpr;
+        R:= TCILClt.Create(Arg,Arg1);
+        FInCtx.CILStack.PushExpr(R);
+      end;
+      Ceq: begin
+        Arg1:= FInCtx.CILStack.PopExpr;
+        Arg:= FInCtx.CILStack.PopExpr;
+        R:= TCILCeq.Create(Arg,Arg1);
+        FInCtx.CILStack.PushExpr(R);
+      end;
       Beq_S: begin
         Arg1:= FInCtx.CILStack.PopExpr;
         Arg:= FInCtx.CILStack.PopExpr;
@@ -725,6 +758,17 @@ begin
         Instr.FExpr:= IfSt;
       end;
       Ble_S: begin
+        Arg1:= FInCtx.CILStack.PopExpr;
+        Arg:= FInCtx.CILStack.PopExpr;
+        Cond:= TCILCondition.Create(Arg, Arg1, '=<');
+        if TCtrlFlowNode(FNextCond.Tgt).FLabel = nil then
+          TCtrlFlowNode(FNextCond.Tgt).FLabel:= TCILLabel.Create('Label'+IntToStr(FIndex))
+        else
+          TCtrlFlowNode(FNextCond.Tgt).FLabel.AddRef;
+        IfSt:= TCILGoTo.Create(Cond,TCtrlFlowNode(FNextCond.Tgt).FLabel);
+        Instr.FExpr:= IfSt;
+      end;
+      Ble: begin
         Arg1:= FInCtx.CILStack.PopExpr;
         Arg:= FInCtx.CILStack.PopExpr;
         Cond:= TCILCondition.Create(Arg, Arg1, '=<');
@@ -831,6 +875,14 @@ begin
         IfSt:= TCILGoToUnCond.Create(TCtrlFlowNode(FNext.Tgt).FLabel);
         Instr.FExpr:= IfSt;
       end;
+      Br: begin
+        if TCtrlFlowNode(FNext.Tgt).FLabel = nil then
+          TCtrlFlowNode(FNext.Tgt).FLabel:= TCILLabel.Create('Label'+IntToStr(FIndex))
+        else
+          TCtrlFlowNode(FNext.Tgt).FLabel.AddRef;
+        IfSt:= TCILGoToUnCond.Create(TCtrlFlowNode(FNext.Tgt).FLabel);
+        Instr.FExpr:= IfSt;
+      end;
       Brtrue: begin
         Arg1:= FInCtx.CILStack.PopExpr;
         Cond:= TCILCondition.Create(Arg1, TCILArg.Create('true'), '=');
@@ -896,21 +948,35 @@ begin
         //Instr.FExpr:= TCILXor.Create(Arg,Arg1);
         FInCtx.CILStack.PushExpr(TCILRem.Create(Arg,Arg1));
       end;
+      opAnd: begin
+        Arg1:= FInCtx.CILStack.PopExpr;
+        Arg:= FInCtx.CILStack.PopExpr;
+        FInCtx.CILStack.PushExpr(TCILAnd.Create(Arg,Arg1));
+      end;
+      Div_Un, opDiv: begin
+        Arg1:= FInCtx.CILStack.PopExpr;
+        Arg:= FInCtx.CILStack.PopExpr;
+        FInCtx.CILStack.PushExpr(TCILDiv.Create(Arg,Arg1));
+      end;
       Conv_U8: begin
         Arg:= FInCtx.CILStack.PopExpr;
-        FInCtx.CILStack.PushExpr(TCILLabel.Create('Integer('+Arg.AsString(false)+')'));
+        FInCtx.CILStack.PushExpr(TCILLabel.Create('UIn64('+Arg.AsString(false)+')'));
       end;
       Conv_U4: begin
         Arg:= FInCtx.CILStack.PopExpr;
-        FInCtx.CILStack.PushExpr(TCILLabel.Create('Integer('+Arg.AsString(false)+')'));
+        FInCtx.CILStack.PushExpr(TCILLabel.Create('UInt32('+Arg.AsString(false)+')'));
       end;
       Conv_U2: begin
         Arg:= FInCtx.CILStack.PopExpr;
-        FInCtx.CILStack.PushExpr(TCILLabel.Create('Integer('+Arg.AsString(false)+')'));
+        FInCtx.CILStack.PushExpr(TCILLabel.Create('Word('+Arg.AsString(false)+')'));
       end;
       Conv_U1: begin
         Arg:= FInCtx.CILStack.PopExpr;
-        FInCtx.CILStack.PushExpr(TCILLabel.Create('Integer('+Arg.AsString(false)+')'));
+        FInCtx.CILStack.PushExpr(TCILLabel.Create('Byte('+Arg.AsString(false)+')'));
+      end;
+      Conv_I2: begin
+        Arg:= FInCtx.CILStack.PopExpr;
+        FInCtx.CILStack.PushExpr(TCILLabel.Create('SmallInt('+Arg.AsString(false)+')'));
       end;
       Rem: begin
         Arg1:= FInCtx.CILStack.PopExpr;
@@ -956,8 +1022,8 @@ begin
           PutS('Cant find CallVirt');
           Exit;
         end;
+        //WriteLn('CallVirt ' + D.ClassName);
         if D.ClassType = TTypeDecl then begin
-          //WriteLn('CallVirt' + D.ClassName);
           Member := Nil;
           if (D<>Nil)and(D is TTypeDecl) then
             hDT := TTypeDecl(D).hDef;
@@ -976,14 +1042,23 @@ begin
                     ProcArgs.Add(FInCtx.CILStack.PopExpr);
                     Args:= TNameDecl(Args.Next);
                   end;
-                  WriteLn('TProcDecl Call Virt');
+                  //WriteLn('TProcDecl Call Virt');
                 end;
                 IfSt:= TCILCall.Create(TTypeDecl(D).Name^.GetStr + '.' + Member.GetName^.GetStr,ProcArgs);
-                FInCtx.CILStack.PushExpr(IfSt);
+                //Instr.
+
+                if (TProcDecl(TMethodDecl(Member).GetProcDecl).IsProc or Instr.IsProc) then  begin
+                  Instr.FExpr:= IfSt;
+                  //WriteLn('proc');
+                  //Writeln(IfSt.AsString(false));
+                end else begin
+                  FInCtx.CILStack.PushExpr(IfSt);
+                  //WriteLn('function');
+                  //Writeln(IfSt.AsString(false));
+                end;
               end;
-                //Member.ShowName;
             end ;
-      end ;
+          end;
         end;
         if D.ClassType = TProcDecl then begin
           ProcArgs:= TList.Create;
@@ -993,13 +1068,19 @@ begin
             Args:= TNameDecl(Args.Next);
           end;
           IfSt:= TCILCall.Create(TProcDecl(D).Name^.GetStr,ProcArgs);
-          if TProcDecl(D).IsProc then
-            Instr.FExpr:= IfSt
-          else
+          if (TProcDecl(D).IsProcEx(U) or Instr.IsProc) then  begin
+            Instr.FExpr:= IfSt;
+            //WriteLn('proc');
+            //Writeln(IfSt.AsString(false));
+          end else begin
             FInCtx.CILStack.PushExpr(IfSt);
+            //WriteLn('function');
+            //Writeln(IfSt.AsString(false));
+          end;
         end;
         CurUnit:= OldU;
       end;
+
       NewObj: begin
         U:= CurUnit;
         D := TUnit(FixUnit).GetGlobalAddrDef(Instr.Fix, U);
@@ -1007,7 +1088,7 @@ begin
           D:= TUnit(FixUnit).GetAddrDef(Instr.Fix);
         OldU:= CurUnit;
         CurUnit := U;
-        WriteLn(D.ClassName);
+        //WriteLn('NewObj '+ D.ClassName);
         if D.ClassType = TTypeDecl then begin
           ProcArgs:= TList.Create;
           IfSt:= TCILCall.Create(TTypeDecl(D).Name^.GetStr + CurUnit.GetOfsQualifier(TTypeDecl(D).hDecl,Instr.I4),nil);
@@ -1026,34 +1107,31 @@ begin
         CurUnit:= OldU;
       end;
       NewArr: begin
-        U := CurUnit;
         D := TUnit(FixUnit).GetGlobalAddrDef(Instr.Fix, U);
-        if D = nil then
-          D:= TUnit(FixUnit).GetAddrDef(Instr.Fix);
-        OldU:= CurUnit;
-        CurUnit := U;
-        //WriteLn(D.ClassName);
+        //if D <> nil then
+          //WriteLn(D.ClassName);
         if D.ClassType = TTypeDecl then begin
           Arg:= FInCtx.CILStack.PopExpr;
-          FInCtx.CILStack.PushExpr(TCILLabel.Create('arr'));
-          IfSt:= TCILLabel.Create('arr:= array of ' + TTypeDecl(D).GetName^.GetStr);
+          FInCtx.CILStack.PushExpr(TCILNewArray.Create(TTypeDecl(D).GetName^.GetStr, Arg));
+          //IfSt:= TCILLabel.Create('array of ' + TTypeDecl(D).GetName^.GetStr);
         end;
-        CurUnit:= OldU;
       end;
       Ldtoken: begin
         D := TUnit(FixUnit).GetAddrDef(Instr.Fix);
         FInCtx.CILStack.PushExpr(TCILArg.Create(TTypeDecl(D).GetName^.GetStr));
       end;
-      Ldfld: begin
+      Ldfld, Ldftn: begin
         D := TUnit(FixUnit).GetGlobalAddrDef(Instr.FixUpRec.Ndx, U);
-        if D = nil then
-          D:= TUnit(FixUnit).GetAddrDef(Instr.FixUpRec.Ndx);
-        WriteLn('LDFLDF:' + D.ClassName);
-        OldU:= CurUnit;
-        CurUnit := U;
-        IfSt:= TCILCall.Create(TTypeDecl(D).Name^.GetStr + U.GetOfsQualifier(TTypeDecl(D).hDef, Instr.I4), nil);
-        FInCtx.CILStack.PushExpr(IfSt);
-        CurUnit:= OldU;
+        if (D<>Nil)and(D is TTypeDecl) then
+          hDT := TTypeDecl(D).hDef;
+        TD := Nil;
+        if hDT>=0 then
+          TD := U.GetTypeDef(hDT);
+        if (TD<>Nil)and(TD is TRecBaseDef) then begin
+          Member := TRecBaseDef(TD).GetMemberByNum(Instr.FI4-1);
+          IfSt:= TCILCall.Create(TTypeDecl(D).Name^.GetStr + '.' + Member.GetName^.GetStr, nil);
+          FInCtx.CILStack.PushExpr(IfSt);
+        end;
       end;
       Ldsfld: begin
         D := TUnit(FixUnit).GetAddrDef(Instr.Fix);
@@ -1062,8 +1140,18 @@ begin
       Stfld: begin
         Arg1:= FInCtx.CILStack.PopExpr;
         Arg:= FInCtx.CILStack.PopExpr;
-                
-        Instr.FExpr:= TCILAssign.Create(Arg, Arg1);
+        D := TUnit(FixUnit).GetGlobalAddrDef(Instr.FixUpRec.Ndx, U);
+        if (D<>Nil)and(D is TTypeDecl) then
+          hDT := TTypeDecl(D).hDef;
+        TD := Nil;
+        if hDT>=0 then
+          TD := U.GetTypeDef(hDT);
+        if (TD<>Nil)and(TD is TRecBaseDef) then begin
+          Member := TRecBaseDef(TD).GetMemberByNum(Instr.FI4-1);
+          IfSt:= TCILLabel.Create(TTypeDecl(D).Name^.GetStr + '.' + Member.GetName^.GetStr);
+          Instr.FExpr:= TCILAssign.Create(IfSt, Arg1);
+        end;
+        //WriteLn(D.ClassName);      
       end;
       Stsfld: begin
         Arg1:= FInCtx.CILStack.PopExpr;

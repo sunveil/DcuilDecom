@@ -45,6 +45,26 @@ public
   property RefCount: integer read FRefCount write FRefCount;
 end;
 
+TCILNewArray = class(TCILExpr)
+protected
+  FType: String;
+  FSize: TCILExpr;
+public
+  constructor Create(AType: String; ASize: TCILExpr);
+  function AsString(BrRq: boolean): String; override;
+  procedure Show(BrRq: boolean);override;
+end;
+
+TCILArray = class(TCILExpr)
+protected
+  FName: TCILExpr;
+  FIdx: TCILExpr;
+public
+  constructor Create(AName: TCILExpr; AIdx: TCILExpr);
+  function AsString(BrRq: boolean): String; override;
+  procedure Show(BrRq: boolean);override;
+end;
+
 TCILIntVal = class(TCILExpr)
 protected
   FVal: Int64;
@@ -181,6 +201,20 @@ public
   //function Eval: TValue; override;
 end;
 
+TCILCeq = class(TCILBinOp)
+public
+  class function OpName: String; override;
+  class function Simmetric: boolean; override;
+  //function Eval: TValue; override;
+end;
+
+TCILClt = class(TCILBinOp)
+public
+  class function OpName: String; override;
+  class function Simmetric: boolean; override;
+  //function Eval: TValue; override;
+end;
+
 TCILConv = class(TCILIsInst)
 protected
 public
@@ -194,6 +228,20 @@ public
 end;
 
 TCILXor = class(TCILBinOp)
+public
+  class function OpName: String; override;
+  class function Simmetric: boolean; override;
+  //function Eval: TValue; override;
+end;
+
+TCILAnd = class(TCILBinOp)
+public
+  class function OpName: String; override;
+  class function Simmetric: boolean; override;
+  //function Eval: TValue; override;
+end;
+
+TCILDiv = class(TCILBinOp)
 public
   class function OpName: String; override;
   class function Simmetric: boolean; override;
@@ -429,18 +477,21 @@ end;
 
 function TCILAssign.AsString(BrRq: boolean): String;
 begin
+  if FSource.ClassType = TCILNewArray then
+    RemOpen;
+
   if (BrRq) then
     Result:= Format('%s %s %s',[FName,':=',FSource.AsString(false)])
   else
     Result:= Format('%s',[FSource.AsString(false)]);
+    
+  if FSource.ClassType = TCILNewArray then
+    RemClose;
 end;
 
 procedure TCILAssign.Show(BrRq: boolean);
 begin
-  if (BrRq) then
-    PutSFmt('%s %s %s;',[FName,':=',FSource.AsString(false)])
-  else
-    PutSFmt('%s;',[FSource.AsString(false)]);
+  PutS(AsString(BrRq));
 end;
 
 constructor TCILAssign.Create(ADest, ASource: TCILExpr);
@@ -491,7 +542,7 @@ begin
 end;
 
 
-{ TCILRet }
+{ TCILRet. }
 
 function TCILRet.AsString(BrRq: boolean): String;
 begin
@@ -520,6 +571,31 @@ begin
   Result:= False;
 end;
 
+{ TCILCeq. }
+
+class function TCILCeq.OpName: String;
+begin
+  Result:= '=';
+end;
+
+class function TCILCeq.Simmetric: boolean;
+begin
+  Result:= False;
+end;
+
+{ TCILClt. }
+
+class function TCILClt.OpName: String;
+begin
+  Result:= '<';
+end;
+
+class function TCILClt.Simmetric: boolean;
+begin
+  Result:= False;
+end;
+
+
 { TCILXor. }
 
 class function TCILXor.OpName: String;
@@ -531,6 +607,19 @@ class function TCILXor.Simmetric: boolean;
 begin
   Result:= False;
 end;
+
+{ TCILAnd. }
+
+class function TCILAnd.OpName: String;
+begin
+  Result:= 'and';
+end;
+
+class function TCILAnd.Simmetric: boolean;
+begin
+  Result:= False;
+end;
+
 
 { TCILRem. }
 
@@ -560,6 +649,54 @@ end;
 procedure TCILIsInst.Show(BrRq: boolean);
 begin
   PutS(AsString(false));
+end;
+
+{ TCILArray. }
+
+constructor TCILArray.Create(AName: TCILExpr; AIdx: TCILExpr);
+begin
+  FName:= AName;
+  FIdx:= AIdx;  
+end;
+
+function TCILArray.AsString(BrRq: boolean): String;
+begin
+   Result:= Format('%s[%s]',[FName.AsString(BrRq), FIdx.AsString(BrRq)]);  
+end;
+
+procedure TCILArray.Show(BrRq: boolean);
+begin
+  PutS(AsString(BrRq));
+end;
+
+{ TCILDiv. }
+
+class function TCILDiv.OpName: String;
+begin
+  Result:= '/';  
+end;
+
+class function TCILDiv.Simmetric: boolean;
+begin
+  Result:= True;
+end;
+
+{ TCILNewArray. }
+
+function TCILNewArray.AsString(BrRq: boolean): String;
+begin
+  Result:= Format('new %s[%s]',[FType, FSize.AsString(false)]);
+end;
+
+constructor TCILNewArray.Create(AType: String; ASize: TCILExpr);
+begin
+  FType:= AType;
+  FSize:= ASize;
+end;
+
+procedure TCILNewArray.Show(BrRq: boolean);
+begin
+  PutS(AsString(BrRq));
 end;
 
 end.

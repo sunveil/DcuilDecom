@@ -134,17 +134,20 @@ begin
   Sz := 0;
     case ByteCode.GetOperandType of
       ShortInlineI ,ShortInlineBrTarget, ShortInlineVar, ShortInlineArg: begin
+        ByteCode.I4:= Byte(DP^);
         SkipCode(1);
-        if ByteCode.GetOperandType = ShortInlineI then
-          ByteCode.I4:= ShortInt(DP^);
+        //if ByteCode.GetOperandType = ShortInlineI then
+        //  ByteCode.I4:= ShortInt(DP^);
       end;
       InlineVar, InlineArg: begin
+        ByteCode.I4:= Word(DP^);
         SkipCode(2);
       end;
       InlineBrTarget, ShortInlineR, InlineI: begin
+        ByteCode.I4:= Integer(DP^);
         SkipCode(4);
-        if ByteCode.GetOperandType = InlineI then
-          ByteCode.I4:= Integer(DP^);
+        //if ByteCode.GetOperandType = InlineI then
+        //  ByteCode.I4:= Integer(DP^);
       end;
       InlineI8, InlineR:
         SkipCode(8);
@@ -162,9 +165,10 @@ begin
       end;
       InlineSig, InlineString, InlineMethod, InlineTok, InlineType, InlineField:begin
         ByteCode.I4:= Integer(DP^);
-        if GetFixupFor(DP,4,false,Fix) then
+        if GetFixupFor(DP,4,false,Fix) then begin
           ByteCode.Fix := Fix^.NDX;
           ByteCode.FixupRec := Fix;
+        end;
           //ReportFixup(Fix,D,ShowHeuristicRefs);
         SkipCode(4);
       end;

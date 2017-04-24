@@ -5,7 +5,7 @@ interface
 type
 TCILCode = (
   Nop,
-  Break,
+  CIL_Break,
   Ldarg_0,
   Ldarg_1,
   Ldarg_2,
